@@ -1,18 +1,21 @@
 package com.wsp.plugins.spatialvision.helloar
 
+import android.media.Image
 import android.opengl.GLES30
 import android.opengl.Matrix
 import android.util.Log
+import android.view.MotionEvent
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.google.ar.core.Anchor
 import com.google.ar.core.Camera
+import com.google.ar.core.Coordinates2d
 import com.google.ar.core.DepthPoint
 import com.google.ar.core.Frame
 import com.google.ar.core.InstantPlacementPoint
 import com.google.ar.core.LightEstimate
 import com.google.ar.core.Plane
-import com.google.ar.core.Point
+import com.google.ar.core.Pose
 import com.google.ar.core.Session
 import com.google.ar.core.Trackable
 import com.google.ar.core.TrackingFailureReason
@@ -531,49 +534,175 @@ class HelloArRenderer(val activity: HelloArActivity) :
     }
 
     // Handle only one tap per frame, as taps are usually low frequency compared to frame rate.
+//    private fun handleTap(frame: Frame, camera: Camera) {
+//        if (camera.trackingState != TrackingState.TRACKING) return
+//        val tap = activity.view.tapHelper.poll() ?: return
+//
+//        val hitResultList =
+//            if (activity.instantPlacementSettings.isInstantPlacementEnabled) {
+//                frame.hitTestInstantPlacement(tap.x, tap.y, APPROXIMATE_DISTANCE_METERS)
+//            } else {
+//                frame.hitTest(tap)
+//            }
+//
+//        // Hits are sorted by depth. Consider only closest hit on a plane, Oriented Point, Depth Point,
+//        // or Instant Placement Point.
+//        val firstHitResult =
+//            hitResultList.firstOrNull { hit ->
+//                when (val trackable = hit.trackable!!) {
+//                    is Plane ->
+//                        trackable.isPoseInPolygon(hit.hitPose) &&
+//                                PlaneRenderer.calculateDistanceToPlane(hit.hitPose, camera.pose) > 0
+//                    is Point -> trackable.orientationMode == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL
+//                    is InstantPlacementPoint -> true
+//                    // DepthPoints are only returned if Config.DepthMode is set to AUTOMATIC.
+//                    is DepthPoint -> true
+//                    else -> false
+//                }
+//            }
+//
+//        if (firstHitResult != null) {
+//            // Cap the number of objects created. This avoids overloading both the
+//            // rendering system and ARCore.
+//            if (wrappedAnchors.size >= 2) {
+//                wrappedAnchors[0].anchor.detach()
+//                wrappedAnchors.removeAt(0)
+//            }
+//
+//            // Adding an Anchor tells ARCore that it should track this position in
+//            // space. This anchor is created on the Plane to place the 3D model
+//            // in the correct position relative both to the world and to the plane.
+//            wrappedAnchors.add(WrappedAnchor(firstHitResult.createAnchor(), firstHitResult.trackable))
+//
+//            // For devices that support the Depth API, shows a dialog to suggest enabling
+//            // depth-based occlusion. This dialog needs to be spawned on the UI thread.
+//            activity.runOnUiThread { activity.view.showOcclusionDialogIfNeeded() }
+//        }
+//    }
+
     private fun handleTap(frame: Frame, camera: Camera) {
         if (camera.trackingState != TrackingState.TRACKING) return
+
         val tap = activity.view.tapHelper.poll() ?: return
 
-        val hitResultList =
-            if (activity.instantPlacementSettings.isInstantPlacementEnabled) {
-                frame.hitTestInstantPlacement(tap.x, tap.y, APPROXIMATE_DISTANCE_METERS)
-            } else {
-                frame.hitTest(tap)
+        val createdAnchor = getAnchorFromRawDepth(frame, camera, tap)
+
+        val finalAnchor: Anchor?
+        var trackable: Trackable? = null
+
+        if (createdAnchor != null) {
+            finalAnchor = createdAnchor
+        } else {
+
+            val hit = frame.hitTest(tap.x, tap.y).firstOrNull {
+                it.trackable is DepthPoint ||
+                        it.trackable is Plane ||
+                        it.trackable is InstantPlacementPoint
             }
 
-        // Hits are sorted by depth. Consider only closest hit on a plane, Oriented Point, Depth Point,
-        // or Instant Placement Point.
-        val firstHitResult =
-            hitResultList.firstOrNull { hit ->
-                when (val trackable = hit.trackable!!) {
-                    is Plane ->
-                        trackable.isPoseInPolygon(hit.hitPose) &&
-                                PlaneRenderer.calculateDistanceToPlane(hit.hitPose, camera.pose) > 0
-                    is Point -> trackable.orientationMode == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL
-                    is InstantPlacementPoint -> true
-                    // DepthPoints are only returned if Config.DepthMode is set to AUTOMATIC.
-                    is DepthPoint -> true
-                    else -> false
-                }
-            }
+            finalAnchor = hit?.createAnchor()
+            trackable = hit?.trackable
+        }
 
-        if (firstHitResult != null) {
-            // Cap the number of objects created. This avoids overloading both the
-            // rendering system and ARCore.
+        if (finalAnchor != null) {
+
             if (wrappedAnchors.size >= 2) {
                 wrappedAnchors[0].anchor.detach()
                 wrappedAnchors.removeAt(0)
             }
 
-            // Adding an Anchor tells ARCore that it should track this position in
-            // space. This anchor is created on the Plane to place the 3D model
-            // in the correct position relative both to the world and to the plane.
-            wrappedAnchors.add(WrappedAnchor(firstHitResult.createAnchor(), firstHitResult.trackable))
+            wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable))
 
-            // For devices that support the Depth API, shows a dialog to suggest enabling
-            // depth-based occlusion. This dialog needs to be spawned on the UI thread.
-            activity.runOnUiThread { activity.view.showOcclusionDialogIfNeeded() }
+            activity.runOnUiThread {
+                activity.view.showOcclusionDialogIfNeeded()
+            }
+        }
+    }
+
+    /** Obtain the depth in millimeters for [depthImage] at coordinates ([x], [y]). */
+    fun getMillimetersDepth(depthImage: Image, x: Int, y: Int): Int {
+        // The depth image has a single plane, which stores depth for each
+        // pixel as 16-bit unsigned integers.
+        val plane = depthImage.planes[0]
+        val byteIndex = x * plane.pixelStride + y * plane.rowStride
+//        val buffer = plane.buffer.order(ByteOrder.nativeOrder())
+        val buffer = plane.buffer.order(ByteOrder.LITTLE_ENDIAN)
+        val depthSample = buffer.getShort(byteIndex)
+        return depthSample.toInt() and 0xFFFF
+    }
+
+    private fun getAnchorFromRawDepth(frame: Frame, camera: Camera, tap: MotionEvent): Anchor? {
+        try {
+
+            var resultAnchor: Anchor? = null
+
+            frame.acquireRawDepthImage16Bits().use { rawDepth ->
+                frame.acquireRawDepthConfidenceImage().use { confidence ->
+
+                    val depthWidth = rawDepth.width
+                    val depthHeight = rawDepth.height
+
+                    val depthBuffer =
+                        rawDepth.planes[0].buffer.order(ByteOrder.nativeOrder())
+                    val confidenceBuffer =
+                        confidence.planes[0].buffer
+
+                    val depthCoords = FloatArray(2)
+
+                    frame.transformCoordinates2d(
+                        Coordinates2d.IMAGE_PIXELS,
+                        floatArrayOf(tap.x, tap.y),
+                        Coordinates2d.TEXTURE_NORMALIZED,
+                        depthCoords
+                    )
+
+                    if (depthCoords[0] !in 0f..1f || depthCoords[1] !in 0f..1f) {
+                        return null
+                    }
+
+                    val dx = (depthCoords[0] * depthWidth).toInt()
+                    val dy = (depthCoords[1] * depthHeight).toInt()
+
+                    val index = dx + dy * depthWidth
+
+                    val depthMm =
+                        depthBuffer.getShort(index * 2).toInt() and 0xFFFF
+
+                    val confidenceVal = confidenceBuffer.get(index).toInt()
+
+                    if (depthMm <= 0 || confidenceVal < 50) {
+                        return null
+                    }
+
+                    val depthMeters = depthMm / 1000f
+
+                    val pose = camera.pose
+
+                    val forward = FloatArray(3)
+                    pose.getZAxis().let {
+                        forward[0] = -it[0]
+                        forward[1] = -it[1]
+                        forward[2] = -it[2]
+                    }
+
+                    val origin = pose.translation
+
+                    val worldPoint = floatArrayOf(
+                        origin[0] + forward[0] * depthMeters,
+                        origin[1] + forward[1] * depthMeters,
+                        origin[2] + forward[2] * depthMeters
+                    )
+
+                    resultAnchor = session?.createAnchor(
+                        Pose(worldPoint, floatArrayOf(0f, 0f, 0f, 1f))
+                    )
+                }
+            }
+
+            return resultAnchor
+
+        } catch (e: Exception) {
+            return null
         }
     }
 
@@ -594,5 +723,5 @@ class HelloArRenderer(val activity: HelloArActivity) :
  */
 private data class WrappedAnchor(
     val anchor: Anchor,
-    val trackable: Trackable,
+    val trackable: Trackable?,
 )

@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.result.ActivityResult
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
@@ -93,6 +94,7 @@ class SpatialVisionPlugin: Plugin() {
             val resultData = data.getStringExtra("resultKey")
             val ret = JSObject()
             ret.put("result", resultData?: "")
+            Toast.makeText(context, resultData, Toast.LENGTH_SHORT).show()
             call.resolve(ret)
         } else {
             // Activity was canceled or failed
