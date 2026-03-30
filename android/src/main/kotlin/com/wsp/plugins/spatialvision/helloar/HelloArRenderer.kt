@@ -35,6 +35,8 @@ import com.google.ar.core.exceptions.NotYetAvailableException
 import com.wsp.plugins.spatialvision.R
 import java.io.IOException
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
 
 /** Renders the HelloAR application using our example Renderer. */
 class HelloArRenderer(val activity: HelloArActivity) :
@@ -93,6 +95,11 @@ class HelloArRenderer(val activity: HelloArActivity) :
     // Virtual object (ARCore pawn)
     lateinit var virtualObjectMesh: Mesh
     lateinit var virtualObjectShader: Shader
+
+    lateinit var lineShader: Shader
+    lateinit var lineMesh: Mesh
+    lateinit var lineVertexBuffer: VertexBuffer
+    lateinit var lineFloatBuffer: FloatBuffer
     lateinit var virtualObjectAlbedoTexture: Texture
     lateinit var virtualObjectAlbedoInstantPlacementTexture: Texture
 
@@ -227,6 +234,27 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     .setTexture("u_RoughnessMetallicAmbientOcclusionTexture", virtualObjectPbrTexture)
                     .setTexture("u_Cubemap", cubemapFilter.filteredCubemapTexture)
                     .setTexture("u_DfgTexture", dfgTexture)
+
+            lineShader = Shader.createFromAssets(
+                render,
+                "shaders/simple_line.vert",
+                "shaders/simple_line.frag",
+                null
+            ).setVec4("u_Color", floatArrayOf(1f, 0f, 0f, 1f)) // RED line
+//
+//            // Allocate a FloatBuffer with 2 points (start & end), 3 floats each (X, Y, Z)
+            lineFloatBuffer = ByteBuffer.allocateDirect(2 * 3 * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+//
+            lineVertexBuffer = VertexBuffer(render, 3, lineFloatBuffer)
+//
+            lineMesh = Mesh(
+                render,
+                Mesh.PrimitiveMode.LINES,
+                null,
+                arrayOf(lineVertexBuffer)
+            )
         } catch (e: IOException) {
             Log.e(TAG, "Failed to read a required asset file", e)
             showError("Failed to read a required asset file: $e")
@@ -344,6 +372,10 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // Get camera matrix and draw.
         camera.getViewMatrix(viewMatrix, 0)
+
+        val cameraPose = camera.pose
+        val cameraPos = floatArrayOf(cameraPose.tx(), cameraPose.ty(), cameraPose.tz())
+
         frame.acquirePointCloud().use { pointCloud ->
             if (pointCloud.timestamp > lastPointCloudTimestamp) {
                 pointCloudVertexBuffer.set(pointCloud.points)
@@ -369,6 +401,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // Visualize anchors created by touch.
         render.clear(virtualSceneFramebuffer, 0f, 0f, 0f, 0f)
+        var obj1Pos: FloatArray? = null
+        var obj2Pos: FloatArray? = null
+
         for ((anchor, trackable) in
         wrappedAnchors.filter { it.anchor.trackingState == TrackingState.TRACKING }) {
             // Get the current pose of an Anchor in world space. The Anchor pose is updated
@@ -392,7 +427,40 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 }
             virtualObjectShader.setTexture("u_AlbedoTexture", texture)
             render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer)
+            // Store positions for line & distance
+            if (obj1Pos == null) obj1Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
+            else if (obj2Pos == null) obj2Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
         }
+
+        // --- Draw line between first 2 anchors ---
+        if (obj1Pos != null && obj2Pos != null) {
+            lineFloatBuffer.clear()
+            lineFloatBuffer.put(obj1Pos)
+            lineFloatBuffer.put(obj2Pos)
+            lineFloatBuffer.position(0)
+            lineVertexBuffer.set(lineFloatBuffer)
+
+            Matrix.setIdentityM(modelMatrix, 0)
+            Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0)
+            Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0)
+            lineShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix)
+
+//            GLES30.glDisable(GLES30.GL_DEPTH_TEST) // optional: line always on top
+            GLES30.glDepthFunc(GLES30.GL_ALWAYS) // Line always passes depth test
+            GLES30.glLineWidth(5f)
+            render.draw(lineMesh, lineShader)
+//            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+            GLES30.glLineWidth(1f)
+            GLES30.glDepthFunc(GLES30.GL_LESS) // Restore default depth function
+
+            // --- Distance updates ---
+            val distObjToObj = distance(obj1Pos, obj2Pos)
+            val distCamToObj1 = distance(cameraPos, obj1Pos)
+            val distCamToObj2 = distance(cameraPos, obj2Pos)
+            activity.updateDistances(distObjToObj, distCamToObj1, distCamToObj2)
+        }
+
+         // --- Compose virtual scene with background ---
 
         // Compose the virtual scene with the background.
         backgroundRenderer.drawVirtualScene(render, virtualSceneFramebuffer, Z_NEAR, Z_FAR)
@@ -507,6 +575,13 @@ class HelloArRenderer(val activity: HelloArActivity) :
             // depth-based occlusion. This dialog needs to be spawned on the UI thread.
             activity.runOnUiThread { activity.view.showOcclusionDialogIfNeeded() }
         }
+    }
+
+    private fun distance(p1: FloatArray, p2: FloatArray): Float {
+        val dx = p1[0] - p2[0]
+        val dy = p1[1] - p2[1]
+        val dz = p1[2] - p2[2]
+        return Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble()).toFloat()
     }
 
     private fun showError(errorMessage: String) =

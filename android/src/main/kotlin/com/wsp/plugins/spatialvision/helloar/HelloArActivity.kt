@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.ar.core.Config
@@ -39,6 +40,10 @@ class HelloArActivity : AppCompatActivity() {
 
     val instantPlacementSettings = InstantPlacementSettings()
     val depthSettings = DepthSettings()
+
+    lateinit var distanceObjToObj: TextView
+    lateinit var distanceCamToObj1: TextView
+    lateinit var distanceCamToObj2: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +89,9 @@ class HelloArActivity : AppCompatActivity() {
 
         // 👇 Add this (find button from layout)
         val closeButton: Button = findViewById<Button>(R.id.close_button)
+        distanceObjToObj = findViewById(R.id.distance_between_objects)
+        distanceCamToObj1 = findViewById(R.id.distance_cam_obj1)
+        distanceCamToObj2 = findViewById(R.id.distance_cam_obj2)
 
         closeButton.setOnClickListener {
             sendResultAndFinish()
@@ -113,6 +121,18 @@ class HelloArActivity : AppCompatActivity() {
                     }
             }
         )
+    }
+
+    fun updateDistances(objToObj: Float?, camToObj1: Float?, camToObj2: Float?) {
+        runOnUiThread {
+            distanceObjToObj.text = "Obj1 ↔ Obj2: ${format(objToObj)} m"
+            distanceCamToObj1.text = "Camera → Obj1: ${format(camToObj1)} m"
+            distanceCamToObj2.text = "Camera → Obj2: ${format(camToObj2)} m"
+        }
+    }
+
+    private fun format(value: Float?): String {
+        return if (value == null) "--" else String.format("%.2f", value)
     }
 
     override fun onRequestPermissionsResult(

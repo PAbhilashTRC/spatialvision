@@ -20,7 +20,7 @@ import android.view.WindowManager;
 import com.google.ar.core.Camera;
 import com.google.ar.core.TrackingFailureReason;
 import com.google.ar.core.TrackingState;
-import com.wsp.plugins.spatialvision.GeoSpatial;
+//import com.wsp.plugins.spatialvision.GeoSpatial;
 
 /** Gets human readibly tracking failure reasons and suggested actions. */
 public final class TrackingStateHelper {
