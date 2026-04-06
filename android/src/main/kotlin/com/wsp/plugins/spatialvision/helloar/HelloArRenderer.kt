@@ -1,5 +1,6 @@
 package com.wsp.plugins.spatialvision.helloar
 
+import android.annotation.SuppressLint
 import android.media.Image
 import android.opengl.GLES30
 import android.opengl.Matrix
@@ -30,7 +31,7 @@ import com.wsp.plugins.spatialvision.common.samplerender.Shader
 import com.wsp.plugins.spatialvision.common.samplerender.Texture
 import com.wsp.plugins.spatialvision.common.samplerender.VertexBuffer
 import com.wsp.plugins.spatialvision.common.samplerender.arcore.BackgroundRenderer
-import com.wsp.plugins.spatialvision.common.samplerender.arcore.PlaneRenderer
+//import com.wsp.plugins.spatialvision.common.samplerender.arcore.PlaneRenderer
 import com.wsp.plugins.spatialvision.common.samplerender.arcore.SpecularCubemapFilter
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.NotYetAvailableException
@@ -81,7 +82,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
     }
 
     lateinit var render: SampleRender
-    lateinit var planeRenderer: PlaneRenderer
+//    lateinit var planeRenderer: PlaneRenderer
     lateinit var backgroundRenderer: BackgroundRenderer
     lateinit var virtualSceneFramebuffer: Framebuffer
     var hasSetTextureNames = false
@@ -99,10 +100,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
     lateinit var virtualObjectMesh: Mesh
     lateinit var virtualObjectShader: Shader
 
-    lateinit var lineShader: Shader
-    lateinit var lineMesh: Mesh
-    lateinit var lineVertexBuffer: VertexBuffer
-    lateinit var lineFloatBuffer: FloatBuffer
+    private lateinit var cylinderShader: Shader
+    private lateinit var cylinderMesh: Mesh
+    private lateinit var cylinderVertexBuffer: VertexBuffer
     lateinit var virtualObjectAlbedoTexture: Texture
     lateinit var virtualObjectAlbedoInstantPlacementTexture: Texture
 
@@ -117,6 +117,10 @@ class HelloArRenderer(val activity: HelloArActivity) :
     val viewMatrix = FloatArray(16)
     val projectionMatrix = FloatArray(16)
     val modelViewMatrix = FloatArray(16) // view x model
+
+    val labelViewProjectionMatrix  = FloatArray(16) // view x projection
+
+    private var labelRenderer: LabelRender? = null
 
     val modelViewProjectionMatrix = FloatArray(16) // projection x view x model
 
@@ -144,7 +148,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
         // Prepare the rendering objects.
         // This involves reading shaders and 3D model files, so may throw an IOException.
         try {
-            planeRenderer = PlaneRenderer(render)
+//            planeRenderer = PlaneRenderer(render)
             backgroundRenderer = BackgroundRenderer(render)
             virtualSceneFramebuffer = Framebuffer(render, /*width=*/ 1, /*height=*/ 1)
 
@@ -226,6 +230,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     Texture.ColorFormat.LINEAR
                 )
             virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn.obj")
+//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring3.obj")
             virtualObjectShader =
                 Shader.createFromAssets(
                     render,
@@ -238,26 +243,50 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     .setTexture("u_Cubemap", cubemapFilter.filteredCubemapTexture)
                     .setTexture("u_DfgTexture", dfgTexture)
 
-            lineShader = Shader.createFromAssets(
+            // --- Cylinder Shader ---
+            cylinderShader = Shader.createFromAssets(
                 render,
-                "shaders/simple_line.vert",
-                "shaders/simple_line.frag",
+                "shaders/cylinder.vert",
+                "shaders/cylinder.frag",
                 null
-            ).setVec4("u_Color", floatArrayOf(1f, 0f, 0f, 1f)) // RED line
-//
-//            // Allocate a FloatBuffer with 2 points (start & end), 3 floats each (X, Y, Z)
-            lineFloatBuffer = ByteBuffer.allocateDirect(2 * 3 * 4)
+            ).setFloat("u_Radius", 0.01f) // base radius
+
+// --- Cylinder Geometry (angle, height) ---
+            val segments = 24
+            val vertexCount = segments * 2
+
+            val data = FloatArray(vertexCount * 2) // angle + height
+
+            var index = 0
+            for (i in 0 until segments) {
+                val angle = (2.0 * Math.PI * i / segments).toFloat()
+
+                // bottom
+                data[index++] = angle
+                data[index++] = 0f
+
+                // top
+                data[index++] = angle
+                data[index++] = 1f
+            }
+
+            val cylinderBuffer = ByteBuffer.allocateDirect(data.size * 4)
                 .order(ByteOrder.nativeOrder())
                 .asFloatBuffer()
-//
-            lineVertexBuffer = VertexBuffer(render, 3, lineFloatBuffer)
-//
-            lineMesh = Mesh(
+            cylinderBuffer.put(data).position(0)
+
+            cylinderVertexBuffer = VertexBuffer(render, 2, cylinderBuffer)
+
+            cylinderMesh = Mesh(
                 render,
-                Mesh.PrimitiveMode.LINES,
+                Mesh.PrimitiveMode.TRIANGLE_STRIP,
                 null,
-                arrayOf(lineVertexBuffer)
+                arrayOf(cylinderVertexBuffer)
             )
+//            labelRenderer.onSurfaceCreated(render)
+            labelRenderer = LabelRender().also {
+                it.onSurfaceCreated(render)
+            }
         } catch (e: IOException) {
             Log.e(TAG, "Failed to read a required asset file", e)
             showError("Failed to read a required asset file: $e")
@@ -390,12 +419,12 @@ class HelloArRenderer(val activity: HelloArActivity) :
         }
 
         // Visualize planes.
-        planeRenderer.drawPlanes(
-            render,
-            session.getAllTrackables<Plane>(Plane::class.java),
-            camera.displayOrientedPose,
-            projectionMatrix
-        )
+//        planeRenderer.drawPlanes(
+//            render,
+//            session.getAllTrackables<Plane>(Plane::class.java),
+//            camera.displayOrientedPose,
+//            projectionMatrix
+//        )
 
         // -- Draw occluded virtual objects
 
@@ -437,21 +466,14 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // --- Draw line between first 2 anchors ---
         if (obj1Pos != null && obj2Pos != null) {
-            lineFloatBuffer.clear()
-            lineFloatBuffer.put(obj1Pos)
-            lineFloatBuffer.put(obj2Pos)
-            lineFloatBuffer.position(0)
-            lineVertexBuffer.set(lineFloatBuffer)
+            cylinderShader.setVec3("u_Start", obj1Pos)
+            cylinderShader.setVec3("u_End", obj2Pos)
+            cylinderShader.setMat4("u_View", viewMatrix)
+            cylinderShader.setMat4("u_Proj", projectionMatrix)
 
-            Matrix.setIdentityM(modelMatrix, 0)
-            Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0)
-            Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0)
-            lineShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix)
+            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
 
-//            GLES30.glDisable(GLES30.GL_DEPTH_TEST) // optional: line always on top
-            GLES30.glDepthFunc(GLES30.GL_ALWAYS) // Line always passes depth test
-            GLES30.glLineWidth(5f)
-            render.draw(lineMesh, lineShader)
+            render.draw(cylinderMesh, cylinderShader)
 //            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
             GLES30.glLineWidth(1f)
             GLES30.glDepthFunc(GLES30.GL_LESS) // Restore default depth function
@@ -460,6 +482,34 @@ class HelloArRenderer(val activity: HelloArActivity) :
             val distObjToObj = distance(obj1Pos, obj2Pos)
             val distCamToObj1 = distance(cameraPos, obj1Pos)
             val distCamToObj2 = distance(cameraPos, obj2Pos)
+            val midpoint = getMidPoint(obj1Pos, obj2Pos)
+
+            val up = FloatArray(3)
+            cameraPose.getTransformedAxis(1, 1.0f, up, 0)
+
+            midpoint[0] += up[0] * 0.05f
+            midpoint[1] += up[1] * 0.05f
+            midpoint[2] += up[2] * 0.05f
+            val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
+//            val labelAnchor = session.createAnchor(labelPose)
+            val labelText = String.format("%.2f m", distObjToObj)
+            Matrix.multiplyMM(labelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
+
+            // ---------------------------
+            // DRAW LABEL (SAFE PATH)
+            // ---------------------------
+            labelRenderer?.let { lr ->
+
+                // IMPORTANT: use separate matrix (no overwriting shared one)
+
+                    lr.draw(
+                        render = render,
+                        viewProjectionMatrix = labelViewProjectionMatrix,
+                        cameraPose = camera.displayOrientedPose,
+                        pose = labelPose,
+                        label = labelText
+                    )
+            }
             activity.updateDistances(distObjToObj, distCamToObj1, distCamToObj2)
         }
 
@@ -534,58 +584,12 @@ class HelloArRenderer(val activity: HelloArActivity) :
     }
 
     // Handle only one tap per frame, as taps are usually low frequency compared to frame rate.
-//    private fun handleTap(frame: Frame, camera: Camera) {
-//        if (camera.trackingState != TrackingState.TRACKING) return
-//        val tap = activity.view.tapHelper.poll() ?: return
-//
-//        val hitResultList =
-//            if (activity.instantPlacementSettings.isInstantPlacementEnabled) {
-//                frame.hitTestInstantPlacement(tap.x, tap.y, APPROXIMATE_DISTANCE_METERS)
-//            } else {
-//                frame.hitTest(tap)
-//            }
-//
-//        // Hits are sorted by depth. Consider only closest hit on a plane, Oriented Point, Depth Point,
-//        // or Instant Placement Point.
-//        val firstHitResult =
-//            hitResultList.firstOrNull { hit ->
-//                when (val trackable = hit.trackable!!) {
-//                    is Plane ->
-//                        trackable.isPoseInPolygon(hit.hitPose) &&
-//                                PlaneRenderer.calculateDistanceToPlane(hit.hitPose, camera.pose) > 0
-//                    is Point -> trackable.orientationMode == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL
-//                    is InstantPlacementPoint -> true
-//                    // DepthPoints are only returned if Config.DepthMode is set to AUTOMATIC.
-//                    is DepthPoint -> true
-//                    else -> false
-//                }
-//            }
-//
-//        if (firstHitResult != null) {
-//            // Cap the number of objects created. This avoids overloading both the
-//            // rendering system and ARCore.
-//            if (wrappedAnchors.size >= 2) {
-//                wrappedAnchors[0].anchor.detach()
-//                wrappedAnchors.removeAt(0)
-//            }
-//
-//            // Adding an Anchor tells ARCore that it should track this position in
-//            // space. This anchor is created on the Plane to place the 3D model
-//            // in the correct position relative both to the world and to the plane.
-//            wrappedAnchors.add(WrappedAnchor(firstHitResult.createAnchor(), firstHitResult.trackable))
-//
-//            // For devices that support the Depth API, shows a dialog to suggest enabling
-//            // depth-based occlusion. This dialog needs to be spawned on the UI thread.
-//            activity.runOnUiThread { activity.view.showOcclusionDialogIfNeeded() }
-//        }
-//    }
-
     private fun handleTap(frame: Frame, camera: Camera) {
         if (camera.trackingState != TrackingState.TRACKING) return
 
         val tap = activity.view.tapHelper.poll() ?: return
 
-        val createdAnchor = getAnchorFromRawDepth(frame, camera, tap)
+        val createdAnchor = getStableDepthAnchor(frame, camera, tap)
 
         val finalAnchor: Anchor?
         var trackable: Trackable? = null
@@ -619,88 +623,110 @@ class HelloArRenderer(val activity: HelloArActivity) :
         }
     }
 
-    /** Obtain the depth in millimeters for [depthImage] at coordinates ([x], [y]). */
-    fun getMillimetersDepth(depthImage: Image, x: Int, y: Int): Int {
-        // The depth image has a single plane, which stores depth for each
-        // pixel as 16-bit unsigned integers.
-        val plane = depthImage.planes[0]
-        val byteIndex = x * plane.pixelStride + y * plane.rowStride
-//        val buffer = plane.buffer.order(ByteOrder.nativeOrder())
-        val buffer = plane.buffer.order(ByteOrder.LITTLE_ENDIAN)
-        val depthSample = buffer.getShort(byteIndex)
-        return depthSample.toInt() and 0xFFFF
-    }
+    private fun getStableDepthAnchor(
+        frame: Frame,
+        camera: Camera,
+        tap: MotionEvent
+    ): Anchor? {
 
-    private fun getAnchorFromRawDepth(frame: Frame, camera: Camera, tap: MotionEvent): Anchor? {
+        if (camera.trackingState != TrackingState.TRACKING) return null
+
         try {
+            frame.acquireRawDepthImage16Bits().use { depthImage ->
+                frame.acquireRawDepthConfidenceImage().use { confidenceImage ->
 
-            var resultAnchor: Anchor? = null
+                    // ✅ Ensure fresh depth (VERY IMPORTANT)
+                    val isFresh = frame.timestamp == depthImage.timestamp
+                    if (!isFresh) return null
 
-            frame.acquireRawDepthImage16Bits().use { rawDepth ->
-                frame.acquireRawDepthConfidenceImage().use { confidence ->
-
-                    val depthWidth = rawDepth.width
-                    val depthHeight = rawDepth.height
+                    val width = depthImage.width
+                    val height = depthImage.height
 
                     val depthBuffer =
-                        rawDepth.planes[0].buffer.order(ByteOrder.nativeOrder())
-                    val confidenceBuffer =
-                        confidence.planes[0].buffer
+                        depthImage.planes[0].buffer.order(ByteOrder.nativeOrder())
+                    val confBuffer = confidenceImage.planes[0].buffer
 
-                    val depthCoords = FloatArray(2)
-
+                    // ✅ Convert tap → depth pixel coordinates
+                    val coords = FloatArray(2)
                     frame.transformCoordinates2d(
-                        Coordinates2d.IMAGE_PIXELS,
+                        Coordinates2d.VIEW,
                         floatArrayOf(tap.x, tap.y),
-                        Coordinates2d.TEXTURE_NORMALIZED,
-                        depthCoords
+                        Coordinates2d.IMAGE_PIXELS,
+                        coords
                     )
 
-                    if (depthCoords[0] !in 0f..1f || depthCoords[1] !in 0f..1f) {
-                        return null
-                    }
+                    val cx = coords[0].toInt()
+                    val cy = coords[1].toInt()
 
-                    val dx = (depthCoords[0] * depthWidth).toInt()
-                    val dy = (depthCoords[1] * depthHeight).toInt()
+                    if (cx !in 0 until width || cy !in 0 until height) return null
 
-                    val index = dx + dy * depthWidth
+                    // ✅ Multi-sample (critical for stability)
+                    val samples = mutableListOf<FloatArray>()
 
-                    val depthMm =
-                        depthBuffer.getShort(index * 2).toInt() and 0xFFFF
-
-                    val confidenceVal = confidenceBuffer.get(index).toInt()
-
-                    if (depthMm <= 0 || confidenceVal < 50) {
-                        return null
-                    }
-
-                    val depthMeters = depthMm / 1000f
-
-                    val pose = camera.pose
-
-                    val forward = FloatArray(3)
-                    pose.getZAxis().let {
-                        forward[0] = -it[0]
-                        forward[1] = -it[1]
-                        forward[2] = -it[2]
-                    }
-
-                    val origin = pose.translation
-
-                    val worldPoint = floatArrayOf(
-                        origin[0] + forward[0] * depthMeters,
-                        origin[1] + forward[1] * depthMeters,
-                        origin[2] + forward[2] * depthMeters
+                    val offsets = listOf(
+                        0 to 0,
+                        -2 to 0, 2 to 0,
+                        0 to -2, 0 to 2
                     )
 
-                    resultAnchor = session?.createAnchor(
-                        Pose(worldPoint, floatArrayOf(0f, 0f, 0f, 1f))
+                    val intrinsics = camera.textureIntrinsics
+                    val fx = intrinsics.focalLength[0]
+                    val fy = intrinsics.focalLength[1]
+                    val px = intrinsics.principalPoint[0]
+                    val py = intrinsics.principalPoint[1]
+
+                    for ((ox, oy) in offsets) {
+                        val x = cx + ox
+                        val y = cy + oy
+
+                        if (x !in 0 until width || y !in 0 until height) continue
+
+                        val index = x + y * width
+
+                        val depthMm =
+                            depthBuffer.getShort(index * 2).toInt() and 0xFFFF
+                        val confidence = confBuffer.get(index).toInt() and 0xFF
+
+                        // ✅ Strong filtering
+                        if (depthMm < 300 || depthMm > 4000) continue
+                        if (confidence < 80) continue
+
+                        val z = depthMm / 1000f
+
+                        // ✅ Correct projection (CRITICAL FIX)
+                        val X = (x - px) / fx * z
+                        val Y = (y - py) / fy * z
+
+                        val cameraPoint = floatArrayOf(X, Y, z)
+                        val worldPoint = FloatArray(3)
+
+                        camera.pose.transformPoint(cameraPoint, 0, worldPoint, 0)
+
+                        samples.add(worldPoint)
+                    }
+
+                    if (samples.size < 3) return null
+
+                    // ✅ Average = stable anchor
+                    val avg = FloatArray(3)
+
+                    for (p in samples) {
+                        avg[0] += p[0]
+                        avg[1] += p[1]
+                        avg[2] += p[2]
+                    }
+
+                    val size = samples.size.toFloat()
+
+                    avg[0] = avg[0] / size
+                    avg[1] = avg[1] / size
+                    avg[2] = avg[2] / size
+
+                    return session?.createAnchor(
+                        Pose(avg, floatArrayOf(0f, 0f, 0f, 1f))
                     )
                 }
             }
-
-            return resultAnchor
-
         } catch (e: Exception) {
             return null
         }
@@ -711,6 +737,14 @@ class HelloArRenderer(val activity: HelloArActivity) :
         val dy = p1[1] - p2[1]
         val dz = p1[2] - p2[2]
         return Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble()).toFloat()
+    }
+
+    fun getMidPoint(p1: FloatArray, p2: FloatArray): FloatArray {
+        return floatArrayOf(
+            (p1[0] + p2[0]) / 2f,
+            (p1[1] + p2[1]) / 2f,
+            (p1[2] + p2[2]) / 2f
+        )
     }
 
     private fun showError(errorMessage: String) =

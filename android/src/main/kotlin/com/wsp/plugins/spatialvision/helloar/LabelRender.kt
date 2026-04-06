@@ -1,0 +1,123 @@
+package com.wsp.plugins.spatialvision.helloar
+
+import com.google.ar.core.Pose
+import com.wsp.plugins.spatialvision.common.helpers.TextTextureCache
+import com.wsp.plugins.spatialvision.common.samplerender.Mesh
+import com.wsp.plugins.spatialvision.common.samplerender.SampleRender
+import com.wsp.plugins.spatialvision.common.samplerender.Shader
+import com.wsp.plugins.spatialvision.common.samplerender.VertexBuffer
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
+
+class LabelRender {
+
+    companion object {
+
+        private const val SIZE = 0.2f  // ✔ AR world-space label size
+
+        // 2 triangles (stable, no strip issues)
+        private val QUAD_COORDS: FloatBuffer =
+            ByteBuffer.allocateDirect(6 * 2 * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+                .apply {
+                    put(
+                        floatArrayOf(
+                            -SIZE, -SIZE,
+                            SIZE, -SIZE,
+                            -SIZE,  SIZE,
+
+                            -SIZE,  SIZE,
+                            SIZE, -SIZE,
+                            SIZE,  SIZE
+                        )
+                    )
+                    position(0)
+                }
+
+        // UVs
+        private val UV_COORDS: FloatBuffer =
+            ByteBuffer.allocateDirect(6 * 2 * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+                .apply {
+                    put(
+                        floatArrayOf(
+                            0f, 0f,
+                            1f, 0f,
+                            0f, 1f,
+
+                            0f, 1f,
+                            1f, 0f,
+                            1f, 1f
+                        )
+                    )
+                    position(0)
+                }
+    }
+
+    private val cache = TextTextureCache()
+
+    private lateinit var mesh: Mesh
+    private lateinit var shader: Shader
+
+    private val labelOrigin = FloatArray(3)
+
+    /**
+     * Initialize shader + mesh
+     */
+    fun onSurfaceCreated(render: SampleRender) {
+
+        shader = Shader.createFromAssets(
+            render,
+            "shaders/label.vert",
+            "shaders/label.frag",
+            null
+        )
+            .setBlend(
+                Shader.BlendFactor.ONE,
+                Shader.BlendFactor.ONE_MINUS_SRC_ALPHA
+            )
+            .setDepthTest(false)
+            .setDepthWrite(false)
+
+        val vertexBuffers = arrayOf(
+            VertexBuffer(render, 2, QUAD_COORDS),
+            VertexBuffer(render, 2, UV_COORDS)
+        )
+
+        mesh = Mesh(
+            render,
+            Mesh.PrimitiveMode.TRIANGLES,
+            null,
+            vertexBuffers
+        )
+    }
+
+    /**
+     * Draw label at AR world pose
+     */
+    fun draw(
+        render: SampleRender,
+        viewProjectionMatrix: FloatArray,
+        pose: Pose,
+        cameraPose: Pose,
+        label: String
+    ) {
+
+        // label position in world space
+        labelOrigin[0] = pose.tx()
+        labelOrigin[1] = pose.ty()
+        labelOrigin[2] = pose.tz()
+
+        shader
+            .setMat4("u_ViewProjection", viewProjectionMatrix)
+            .setVec3("u_LabelOrigin", labelOrigin)
+            .setVec3("u_CameraPos", cameraPose.translation)
+            .setTexture("uTexture", cache.get(render, label))
+            .setFloat("u_Scale", 1.8f)
+
+        render.draw(mesh, shader)
+    }
+}
