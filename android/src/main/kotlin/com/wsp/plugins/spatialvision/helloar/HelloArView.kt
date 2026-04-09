@@ -32,6 +32,7 @@ import com.wsp.plugins.spatialvision.common.helpers.TapHelper
 class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   val root = View.inflate(activity, R.layout.spatial_vision, null)
   val surfaceView = root.findViewById<GLSurfaceView>(R.id.surfaceview)
+  var showCardLabel = true
   val settingsButton =
     root.findViewById<ImageButton>(R.id.settings_button).apply {
       setOnClickListener { v ->
@@ -40,6 +41,18 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
             when (item.itemId) {
               R.id.depth_settings -> launchDepthSettingsMenuDialog()
               R.id.instant_placement_settings -> launchInstantPlacementSettingsMenuDialog()
+              R.id.card -> {
+                showCardLabel = !showCardLabel
+
+                // Optional: update menu title dynamically
+                item.title = if (showCardLabel) {
+                  "Show Simple Label"
+                } else {
+                  "Show Card Label"
+                }
+
+                true
+              }
               else -> null
             } != null
           }
@@ -54,6 +67,7 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
 
   val snackbarHelper = SnackbarHelper()
   val tapHelper = TapHelper(activity).also { surfaceView.setOnTouchListener(it) }
+//  surfaceView.setOnTouchListener(dragHelper)
 
   override fun onResume(owner: LifecycleOwner) {
     surfaceView.onResume()

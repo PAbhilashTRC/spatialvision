@@ -72,14 +72,14 @@ class HelloArActivity : AppCompatActivity() {
         arCoreSessionHelper.beforeSessionResume = ::configureSession
         lifecycle.addObserver(arCoreSessionHelper)
 
-        // Set up the Hello AR renderer.
-        renderer = HelloArRenderer(this)
-        lifecycle.addObserver(renderer)
-
         // Set up Hello AR UI.
         view = HelloArView(this)
         lifecycle.addObserver(view)
         setContentView(view.root)
+
+        // Set up the Hello AR renderer.
+        renderer = HelloArRenderer(this)
+        lifecycle.addObserver(renderer)
 
         // Sets up an example renderer using our HelloARRenderer.
         SampleRender(view.surfaceView, renderer, assets)

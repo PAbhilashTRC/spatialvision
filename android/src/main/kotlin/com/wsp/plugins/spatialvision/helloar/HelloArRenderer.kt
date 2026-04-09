@@ -1,7 +1,7 @@
 package com.wsp.plugins.spatialvision.helloar
 
-import android.annotation.SuppressLint
-import android.media.Image
+//import com.wsp.plugins.spatialvision.common.samplerender.arcore.PlaneRenderer
+//import com.wsp.plugins.spatialvision.GeoSpatial
 import android.opengl.GLES30
 import android.opengl.Matrix
 import android.util.Log
@@ -21,6 +21,10 @@ import com.google.ar.core.Session
 import com.google.ar.core.Trackable
 import com.google.ar.core.TrackingFailureReason
 import com.google.ar.core.TrackingState
+import com.google.ar.core.exceptions.CameraNotAvailableException
+import com.google.ar.core.exceptions.NotYetAvailableException
+import com.wsp.plugins.spatialvision.R
+import com.wsp.plugins.spatialvision.common.helpers.ARLabelData
 import com.wsp.plugins.spatialvision.common.helpers.DisplayRotationHelper
 import com.wsp.plugins.spatialvision.common.helpers.TrackingStateHelper
 import com.wsp.plugins.spatialvision.common.samplerender.Framebuffer
@@ -31,16 +35,10 @@ import com.wsp.plugins.spatialvision.common.samplerender.Shader
 import com.wsp.plugins.spatialvision.common.samplerender.Texture
 import com.wsp.plugins.spatialvision.common.samplerender.VertexBuffer
 import com.wsp.plugins.spatialvision.common.samplerender.arcore.BackgroundRenderer
-//import com.wsp.plugins.spatialvision.common.samplerender.arcore.PlaneRenderer
 import com.wsp.plugins.spatialvision.common.samplerender.arcore.SpecularCubemapFilter
-import com.google.ar.core.exceptions.CameraNotAvailableException
-import com.google.ar.core.exceptions.NotYetAvailableException
-//import com.wsp.plugins.spatialvision.GeoSpatial
-import com.wsp.plugins.spatialvision.R
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.FloatBuffer
 
 /** Renders the HelloAR application using our example Renderer. */
 class HelloArRenderer(val activity: HelloArActivity) :
@@ -100,9 +98,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
     lateinit var virtualObjectMesh: Mesh
     lateinit var virtualObjectShader: Shader
 
-    private lateinit var cylinderShader: Shader
-    private lateinit var cylinderMesh: Mesh
-    private lateinit var cylinderVertexBuffer: VertexBuffer
     lateinit var virtualObjectAlbedoTexture: Texture
     lateinit var virtualObjectAlbedoInstantPlacementTexture: Texture
 
@@ -122,6 +117,11 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     private var labelRenderer: LabelRender? = null
 
+    val isCard = activity.view.showCardLabel
+    private var depthConfidence = "";
+
+    private var cylinder: Cylinder? = null
+
     val modelViewProjectionMatrix = FloatArray(16) // projection x view x model
 
     val sphericalHarmonicsCoefficients = FloatArray(9 * 3)
@@ -134,6 +134,11 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     val displayRotationHelper = DisplayRotationHelper(activity)
     val trackingStateHelper = TrackingStateHelper(activity)
+
+    var currentMode = InteractionMode.NONE
+    var selectedAnchor: WrappedAnchor? = null
+
+    private var lastUpdateTime = 0L
 
     override fun onResume(owner: LifecycleOwner) {
         displayRotationHelper.onResume()
@@ -229,8 +234,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     Texture.WrapMode.CLAMP_TO_EDGE,
                     Texture.ColorFormat.LINEAR
                 )
-            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn.obj")
-//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring3.obj")
+//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn.obj")
+            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring4.obj")
             virtualObjectShader =
                 Shader.createFromAssets(
                     render,
@@ -243,47 +248,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     .setTexture("u_Cubemap", cubemapFilter.filteredCubemapTexture)
                     .setTexture("u_DfgTexture", dfgTexture)
 
-            // --- Cylinder Shader ---
-            cylinderShader = Shader.createFromAssets(
-                render,
-                "shaders/cylinder.vert",
-                "shaders/cylinder.frag",
-                null
-            ).setFloat("u_Radius", 0.01f) // base radius
-
-// --- Cylinder Geometry (angle, height) ---
-            val segments = 24
-            val vertexCount = segments * 2
-
-            val data = FloatArray(vertexCount * 2) // angle + height
-
-            var index = 0
-            for (i in 0 until segments) {
-                val angle = (2.0 * Math.PI * i / segments).toFloat()
-
-                // bottom
-                data[index++] = angle
-                data[index++] = 0f
-
-                // top
-                data[index++] = angle
-                data[index++] = 1f
+            cylinder = Cylinder().also{
+                it.onSurfaceCreated(render)
             }
-
-            val cylinderBuffer = ByteBuffer.allocateDirect(data.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-            cylinderBuffer.put(data).position(0)
-
-            cylinderVertexBuffer = VertexBuffer(render, 2, cylinderBuffer)
-
-            cylinderMesh = Mesh(
-                render,
-                Mesh.PrimitiveMode.TRIANGLE_STRIP,
-                null,
-                arrayOf(cylinderVertexBuffer)
-            )
-//            labelRenderer.onSurfaceCreated(render)
             labelRenderer = LabelRender().also {
                 it.onSurfaceCreated(render)
             }
@@ -361,6 +328,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // Handle one tap per frame.
         handleTap(frame, camera)
+        handleDrag(frame, camera)
 
         // Keep the screen unlocked while tracking, but allow it to lock when tracking stops.
         trackingStateHelper.updateKeepScreenOnFlag(camera.trackingState)
@@ -466,17 +434,15 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // --- Draw line between first 2 anchors ---
         if (obj1Pos != null && obj2Pos != null) {
-            cylinderShader.setVec3("u_Start", obj1Pos)
-            cylinderShader.setVec3("u_End", obj2Pos)
-            cylinderShader.setMat4("u_View", viewMatrix)
-            cylinderShader.setMat4("u_Proj", projectionMatrix)
+            cylinder?.let{ cl ->
 
-            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
-
-            render.draw(cylinderMesh, cylinderShader)
-//            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
-            GLES30.glLineWidth(1f)
-            GLES30.glDepthFunc(GLES30.GL_LESS) // Restore default depth function
+                cl.draw(
+                    render,
+                    obj1Pos,
+                    obj2Pos,
+                    viewMatrix,
+                    projectionMatrix)
+            }
 
             // --- Distance updates ---
             val distObjToObj = distance(obj1Pos, obj2Pos)
@@ -491,23 +457,29 @@ class HelloArRenderer(val activity: HelloArActivity) :
             midpoint[1] += up[1] * 0.05f
             midpoint[2] += up[2] * 0.05f
             val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
-//            val labelAnchor = session.createAnchor(labelPose)
             val labelText = String.format("%.2f m", distObjToObj)
             Matrix.multiplyMM(labelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
 
             // ---------------------------
             // DRAW LABEL (SAFE PATH)
             // ---------------------------
+            val obj1Formatted = obj1Pos.joinToString(", ") { "%.2f".format(it) }
+            val obj2Formatted = obj2Pos.joinToString(", ") { "%.2f".format(it) }
+            val measureWithMetadata = ARLabelData(title ="Measuring Tool",
+                measurement = labelText,
+                sourceA = obj1Formatted,
+                sourceB = obj2Formatted,
+                confidence = depthConfidence )
+
+
             labelRenderer?.let { lr ->
-
-                // IMPORTANT: use separate matrix (no overwriting shared one)
-
                     lr.draw(
                         render = render,
                         viewProjectionMatrix = labelViewProjectionMatrix,
                         cameraPose = camera.displayOrientedPose,
                         pose = labelPose,
-                        label = labelText
+                        data = measureWithMetadata,
+                        showCard = activity.view.showCardLabel
                     )
             }
             activity.updateDistances(distObjToObj, distCamToObj1, distCamToObj2)
@@ -587,7 +559,17 @@ class HelloArRenderer(val activity: HelloArActivity) :
     private fun handleTap(frame: Frame, camera: Camera) {
         if (camera.trackingState != TrackingState.TRACKING) return
 
-        val tap = activity.view.tapHelper.poll() ?: return
+        val tapHelper = activity.view.tapHelper
+        if (tapHelper.isDragging()) return
+
+        val tap = activity.view.tapHelper.pollTap() ?: return
+
+        val selected = findSelectedAnchor(frame, tap)
+        if(selected != null){
+            selectedAnchor = selected
+            currentMode = InteractionMode.SELECTED
+            return
+        }
 
         val createdAnchor = getStableDepthAnchor(frame, camera, tap)
 
@@ -615,10 +597,74 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 wrappedAnchors.removeAt(0)
             }
 
-            wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable))
+            wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable, false))
 
             activity.runOnUiThread {
                 activity.view.showOcclusionDialogIfNeeded()
+            }
+        }
+    }
+
+    private fun handleDrag(frame: Frame, camera: Camera) {
+
+        if (camera.trackingState != TrackingState.TRACKING) return
+
+        val tapHelper = activity.view.tapHelper
+
+        // 👉 Not dragging → reset state safely
+        if (!tapHelper.isDragging()) {
+            if (currentMode == InteractionMode.DRAGGING ||
+                currentMode == InteractionMode.SELECTED) {
+
+                selectedAnchor?.isSelected = false
+                selectedAnchor = null
+                currentMode = InteractionMode.NONE
+            }
+            return
+        }
+
+        val event = tapHelper.pollDrag() ?: return
+
+        when (event.actionMasked) {
+
+            MotionEvent.ACTION_DOWN -> {
+                val selected = findSelectedAnchor(frame, event)
+
+                if (selected != null) {
+                    selectedAnchor = selected
+                    selected.isSelected = true
+                    currentMode = InteractionMode.SELECTED
+                }
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+
+                if (currentMode == InteractionMode.SELECTED && selectedAnchor != null) {
+                    currentMode = InteractionMode.DRAGGING
+                }
+
+                if (currentMode == InteractionMode.DRAGGING && selectedAnchor != null) {
+
+                    // 🔥 THROTTLE (critical for stability)
+                    if (System.currentTimeMillis() - lastUpdateTime < 50) return
+
+                    val newAnchor =
+                        getStableDepthAnchor(frame, camera, event)
+                            ?: frame.hitTest(event.x, event.y)
+                                .firstOrNull {
+                                    it.trackable is DepthPoint ||
+                                            it.trackable is Plane ||
+                                            it.trackable is InstantPlacementPoint
+                                }?.createAnchor()
+
+                    if (newAnchor != null) {
+                        // 🔥 APPLY DRAG
+                        selectedAnchor?.anchor?.detach()
+                        selectedAnchor?.anchor = newAnchor
+
+                        lastUpdateTime = System.currentTimeMillis()
+                    }
+                }
             }
         }
     }
@@ -686,6 +732,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                         val depthMm =
                             depthBuffer.getShort(index * 2).toInt() and 0xFFFF
                         val confidence = confBuffer.get(index).toInt() and 0xFF
+                        depthConfidence = confidence.toString()
 
                         // ✅ Strong filtering
                         if (depthMm < 300 || depthMm > 4000) continue
@@ -747,6 +794,69 @@ class HelloArRenderer(val activity: HelloArActivity) :
         )
     }
 
+    fun findSelectedAnchor(frame: Frame, tap: MotionEvent): WrappedAnchor? {
+
+        val thresholdPx = 80f
+
+        val screenWidth = activity.view.surfaceView.width
+        val screenHeight = activity.view.surfaceView.height
+
+        for (wa in wrappedAnchors) {
+
+            val pose = wa.anchor.pose
+            val world = floatArrayOf(pose.tx(), pose.ty(), pose.tz())
+
+            val screen = worldToScreen(
+                frame,
+                world,
+                screenWidth,
+                screenHeight
+            )
+
+            val dx = screen[0] - tap.x
+            val dy = screen[1] - tap.y
+
+            if (dx * dx + dy * dy < thresholdPx * thresholdPx) {
+                return wa
+            }
+        }
+        return null
+    }
+
+    fun worldToScreen(
+        frame: Frame,
+        world: FloatArray,
+        screenWidth: Int,
+        screenHeight: Int
+    ): FloatArray {
+
+        val view = FloatArray(16)
+        val proj = FloatArray(16)
+        val vp = FloatArray(16)
+        val temp = FloatArray(4)
+
+        frame.camera.getViewMatrix(view, 0)
+        frame.camera.getProjectionMatrix(proj, 0, 0.1f, 100f)
+
+        // VP = Projection * View
+        Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
+
+        val input = floatArrayOf(world[0], world[1], world[2], 1f)
+
+        Matrix.multiplyMV(temp, 0, vp, 0, input, 0)
+
+        if (temp[3] == 0f) return floatArrayOf(-1f, -1f)
+
+        val ndcX = temp[0] / temp[3]
+        val ndcY = temp[1] / temp[3]
+
+        val x = ((ndcX + 1f) / 2f) * screenWidth
+        val y = ((1f - ndcY) / 2f) * screenHeight
+
+        return floatArrayOf(x, y)
+    }
+
+
     private fun showError(errorMessage: String) =
         activity.view.snackbarHelper.showError(activity, errorMessage)
 }
@@ -755,7 +865,15 @@ class HelloArRenderer(val activity: HelloArActivity) :
  * Associates an Anchor with the trackable it was attached to. This is used to be able to check
  * whether or not an Anchor originally was attached to an {@link InstantPlacementPoint}.
  */
-private data class WrappedAnchor(
-    val anchor: Anchor,
+public data class WrappedAnchor(
+    var anchor: Anchor,
     val trackable: Trackable?,
+    var isSelected: Boolean = false
 )
+
+enum class InteractionMode {
+    NONE,
+    ADD,
+    SELECTED,
+    DRAGGING
+}

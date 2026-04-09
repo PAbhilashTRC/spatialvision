@@ -22,16 +22,36 @@ class TextTextureCache {
      * Get a texture for a given string. If that string hasn't been used yet, create a texture for it
      * and cache the result.
      */
-    fun get(render: SampleRender, string: String): Texture {
-        return cacheMap.computeIfAbsent(string) {
-            generateTexture(render, string)
+//    fun get(render: SampleRender, string: String): Texture {
+//        return cacheMap.computeIfAbsent(string) {
+//            generateTexture(render, string)
+//        }
+//    }
+
+    fun getSimpleText(render: SampleRender, measurement: String): Texture {
+        return cacheMap.computeIfAbsent(measurement) {
+            generateTexture(render, measurement)
         }
     }
 
-    private fun generateTexture(render: SampleRender, string: String): Texture {
-        val texture = Texture(render, Texture.Target.TEXTURE_2D, Texture.WrapMode.CLAMP_TO_EDGE)
+    fun get(render: SampleRender, data: ARLabelData): Texture {
+        return cacheMap.computeIfAbsent(data.measurement) {
+            generateTextureForCard(render, data)
+        }
+    }
 
-        val bitmap = generateBitmapFromString(string)
+    private fun generateTextureForCard(render: SampleRender, cardData: ARLabelData): Texture{
+        val bitmap = generateBitmap(cardData)
+        return passTextureToOpenGL( render, bitmap)
+    }
+
+    private fun generateTexture(render: SampleRender, measurement: String): Texture {
+        val bitmap = generateBitmapFromString(measurement)
+        return passTextureToOpenGL( render, bitmap)
+    }
+
+    private fun passTextureToOpenGL(render: SampleRender, bitmap: Bitmap): Texture{
+        val texture = Texture(render, Texture.Target.TEXTURE_2D, Texture.WrapMode.CLAMP_TO_EDGE)
         val buffer = ByteBuffer.allocateDirect(bitmap.byteCount)
         bitmap.copyPixelsToBuffer(buffer)
         buffer.rewind()
@@ -56,16 +76,6 @@ class TextTextureCache {
         return texture
     }
 
-//    val textPaint = Paint().apply {
-//        textSize = 26f
-//        setARGB(0xff, 0xff, 0x00, 0x00)
-//        style = Paint.Style.FILL
-//        isAntiAlias = true
-//        textAlign = Paint.Align.CENTER
-//        typeface = Typeface.DEFAULT_BOLD
-//        strokeWidth = 2f
-//    }
-
     val textPaint = Paint().apply {
         textSize = 26f
         setARGB(0xff, 0xff, 0x00, 0x00) // pure red
@@ -73,11 +83,6 @@ class TextTextureCache {
         isAntiAlias = true
         textAlign = Paint.Align.CENTER
         typeface = Typeface.DEFAULT_BOLD
-    }
-
-    val strokePaint = Paint(textPaint).apply {
-        setARGB(0xff, 0x00, 0x00, 0x00)
-        style = Paint.Style.STROKE
     }
 
     val shadowPaint = Paint().apply {
@@ -101,17 +106,6 @@ class TextTextureCache {
         typeface = Typeface.DEFAULT_BOLD
     }
 
-    val highlightPaint = Paint().apply {
-        textSize = 26f
-        color = android.graphics.Color.WHITE
-        style = Paint.Style.STROKE
-        isAntiAlias = true
-        textAlign = Paint.Align.CENTER
-        typeface = Typeface.DEFAULT_BOLD
-        strokeWidth = 1.2f
-        alpha = 80
-    }
-
     private fun generateBitmapFromString(string: String): Bitmap {
         val w = 256
         val h = 256
@@ -120,18 +114,6 @@ class TextTextureCache {
             eraseColor(0)
 
             val canvas = Canvas(this)
-
-            // Metallic gradient paint
-//            val shader = android.graphics.LinearGradient(
-//                0f, 0f, 0f, h.toFloat(),
-//                intArrayOf(
-//                    android.graphics.Color.parseColor("#F5F5F5"), // highlight
-//                    android.graphics.Color.parseColor("#B0B0B0"), // mid silver
-//                    android.graphics.Color.parseColor("#6E6E6E")  // shadow
-//                ),
-//                floatArrayOf(0f, 0.5f, 1f),
-//                android.graphics.Shader.TileMode.CLAMP
-//            )
 
             val shader = android.graphics.LinearGradient(
                 0f, 0f, 0f, h.toFloat(),
@@ -171,4 +153,69 @@ class TextTextureCache {
         }
     }
 
+    private fun generateBitmap(data: ARLabelData): Bitmap {
+
+        val labelPaint = Paint().apply {
+            textSize = 18f
+            isAntiAlias = true
+            color = android.graphics.Color.LTGRAY
+            typeface = Typeface.DEFAULT
+        }
+
+        val valuePaint = Paint().apply {
+            textSize = 18f
+            isAntiAlias = true
+            color = android.graphics.Color.WHITE
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        val padding = 16
+        val lineHeight = 38
+
+        val rows = 5
+
+        val width = 320
+        val height = padding * 2 + lineHeight * rows
+
+        return createBitmap(width, height).apply {
+
+            eraseColor(android.graphics.Color.argb(160, 0, 0, 0)) // slightly lighter overlay
+
+            val canvas = Canvas(this)
+
+            var y = padding + 28f
+
+            // Row 1
+            canvas.drawText("Title:", 16f, y, labelPaint)
+            canvas.drawText(data.title, 150f, y, valuePaint)
+            y += lineHeight
+
+            // Row 2
+            canvas.drawText("Measure:", 16f, y, labelPaint)
+            canvas.drawText(data.measurement, 150f, y, valuePaint)
+            y += lineHeight
+
+            // Row 3
+            canvas.drawText("Source A:", 16f, y, labelPaint)
+            canvas.drawText(data.sourceA, 150f, y, valuePaint)
+            y += lineHeight
+
+            // Row 4
+            canvas.drawText("Source B:", 16f, y, labelPaint)
+            canvas.drawText(data.sourceB, 150f, y, valuePaint)
+            y += lineHeight
+
+            // Row 5
+            canvas.drawText("Confidence:", 16f, y, labelPaint)
+            canvas.drawText(data.confidence, 150f, y, valuePaint)
+        }
+    }
+
 }
+data class ARLabelData(
+    val title: String,
+    val measurement: String,
+    val sourceA: String,
+    val sourceB: String,
+    val confidence: String
+)

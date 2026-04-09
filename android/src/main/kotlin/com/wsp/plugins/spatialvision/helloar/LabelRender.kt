@@ -1,6 +1,7 @@
 package com.wsp.plugins.spatialvision.helloar
 
 import com.google.ar.core.Pose
+import com.wsp.plugins.spatialvision.common.helpers.ARLabelData
 import com.wsp.plugins.spatialvision.common.helpers.TextTextureCache
 import com.wsp.plugins.spatialvision.common.samplerender.Mesh
 import com.wsp.plugins.spatialvision.common.samplerender.SampleRender
@@ -13,7 +14,6 @@ import java.nio.FloatBuffer
 class LabelRender {
 
     companion object {
-
         private const val SIZE = 0.2f  // ✔ AR world-space label size
 
         // 2 triangles (stable, no strip issues)
@@ -63,7 +63,6 @@ class LabelRender {
     private lateinit var shader: Shader
 
     private val labelOrigin = FloatArray(3)
-
     /**
      * Initialize shader + mesh
      */
@@ -103,7 +102,8 @@ class LabelRender {
         viewProjectionMatrix: FloatArray,
         pose: Pose,
         cameraPose: Pose,
-        label: String
+        data: ARLabelData,
+        showCard: Boolean
     ) {
 
         // label position in world space
@@ -111,11 +111,19 @@ class LabelRender {
         labelOrigin[1] = pose.ty()
         labelOrigin[2] = pose.tz()
 
+        val texture = if (showCard) {
+            // ✅ Full card (existing behavior)
+            cache.get(render, data)
+        } else {
+            // ✅ Simple label (only text)
+            cache.getSimpleText(render, data.measurement) // 👈 new method
+        }
+
         shader
             .setMat4("u_ViewProjection", viewProjectionMatrix)
             .setVec3("u_LabelOrigin", labelOrigin)
             .setVec3("u_CameraPos", cameraPose.translation)
-            .setTexture("uTexture", cache.get(render, label))
+            .setTexture("uTexture", texture)
             .setFloat("u_Scale", 1.8f)
 
         render.draw(mesh, shader)
