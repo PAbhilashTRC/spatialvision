@@ -17,6 +17,8 @@ class Cylinder {
     private lateinit var cylinderMesh: Mesh
     private lateinit var cylinderVertexBuffer: VertexBuffer
 
+    private var radius: Float = 0.01f
+
     fun onSurfaceCreated(render: SampleRender) {
         try{
             cylinderShader = Shader.createFromAssets(
@@ -24,7 +26,7 @@ class Cylinder {
                 "shaders/cylinder.vert",
                 "shaders/cylinder.frag",
                 null
-            ).setFloat("u_Radius", 0.01f) // base radius
+            ); // base radius
 
             // --- Cylinder Geometry (angle, height) ---
             val segments = 24
@@ -75,6 +77,7 @@ class Cylinder {
         cylinderShader.setMat4("u_Proj", projectionMatrix)
         cylinderShader.setVec4("u_Color", floatArrayOf(0.0f, 0.45f, 0.15f, 1.0f))
         cylinderShader.setVec3("uPointLightingLocation", floatArrayOf(0.8f, 0.8f, 0.0f))
+        cylinderShader.setFloat("u_Radius", radius)
 
         cylinderShader.setVec3("uAmbientColor", floatArrayOf(0.4f, 0.4f, 0.4f))
 
@@ -90,6 +93,9 @@ class Cylinder {
 
         render.draw(cylinderMesh, cylinderShader)
 
+    }
+    fun setRadius(newRadius: Float) {
+        radius = newRadius.coerceAtLeast(0.01f)
     }
 
 }

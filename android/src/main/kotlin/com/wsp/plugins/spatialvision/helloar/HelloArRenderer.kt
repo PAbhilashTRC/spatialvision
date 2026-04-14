@@ -6,6 +6,7 @@ import android.opengl.GLES30
 import android.opengl.Matrix
 import android.util.Log
 import android.view.MotionEvent
+import android.widget.SeekBar
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.google.ar.core.Anchor
@@ -39,6 +40,7 @@ import com.wsp.plugins.spatialvision.common.samplerender.arcore.SpecularCubemapF
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.properties.Delegates
 
 /** Renders the HelloAR application using our example Renderer. */
 class HelloArRenderer(val activity: HelloArActivity) :
@@ -118,7 +120,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
     private var labelRenderer: LabelRender? = null
 
     val isCard = activity.view.showCardLabel
-    private var depthConfidence = "";
+    var depthConfidence: Int? = null;
 
     private var cylinder: Cylinder? = null
 
@@ -432,17 +434,26 @@ class HelloArRenderer(val activity: HelloArActivity) :
             else if (obj2Pos == null) obj2Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
         }
 
+        activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val radius = progress / 1000f  // scale factor
+                cylinder?.setRadius(radius)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
         // --- Draw line between first 2 anchors ---
         if (obj1Pos != null && obj2Pos != null) {
-            cylinder?.let{ cl ->
-
-                cl.draw(
-                    render,
-                    obj1Pos,
-                    obj2Pos,
-                    viewMatrix,
-                    projectionMatrix)
-            }
+            cylinder?.draw(
+                render,
+                obj1Pos,
+                obj2Pos,
+                viewMatrix,
+                projectionMatrix)
 
             // --- Distance updates ---
             val distObjToObj = distance(obj1Pos, obj2Pos)
@@ -465,11 +476,16 @@ class HelloArRenderer(val activity: HelloArActivity) :
             // ---------------------------
             val obj1Formatted = obj1Pos.joinToString(", ") { "%.2f".format(it) }
             val obj2Formatted = obj2Pos.joinToString(", ") { "%.2f".format(it) }
+            var confidence = ""
+            if(depthConfidence != null){
+                confidence = depthConfidence.toString()
+            }
             val measureWithMetadata = ARLabelData(title ="Measuring Tool",
                 measurement = labelText,
                 sourceA = obj1Formatted,
                 sourceB = obj2Formatted,
-                confidence = depthConfidence )
+                confidence = confidence
+            )
 
 
             labelRenderer?.let { lr ->
@@ -482,7 +498,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                         showCard = activity.view.showCardLabel
                     )
             }
-            activity.updateDistances(distObjToObj, distCamToObj1, distCamToObj2)
+            activity.updateDistances(distObjToObj, distCamToObj1, distCamToObj2, depthConfidence)
         }
 
          // --- Compose virtual scene with background ---
@@ -653,8 +669,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                             ?: frame.hitTest(event.x, event.y)
                                 .firstOrNull {
                                     it.trackable is DepthPoint ||
-                                            it.trackable is Plane ||
-                                            it.trackable is InstantPlacementPoint
+                                            it.trackable is Plane
                                 }?.createAnchor()
 
                     if (newAnchor != null) {
@@ -732,7 +747,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                         val depthMm =
                             depthBuffer.getShort(index * 2).toInt() and 0xFFFF
                         val confidence = confBuffer.get(index).toInt() and 0xFF
-                        depthConfidence = confidence.toString()
+                        depthConfidence = confidence
 
                         // ✅ Strong filtering
                         if (depthMm < 300 || depthMm > 4000) continue
@@ -796,7 +811,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     fun findSelectedAnchor(frame: Frame, tap: MotionEvent): WrappedAnchor? {
 
-        val thresholdPx = 80f
+        val thresholdPx = 100f
 
         val screenWidth = activity.view.surfaceView.width
         val screenHeight = activity.view.surfaceView.height

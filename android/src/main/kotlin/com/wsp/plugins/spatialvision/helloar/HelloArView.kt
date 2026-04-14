@@ -27,36 +27,36 @@ import com.google.ar.core.Config
 import com.wsp.plugins.spatialvision.R
 import com.wsp.plugins.spatialvision.common.helpers.SnackbarHelper
 import com.wsp.plugins.spatialvision.common.helpers.TapHelper
+import android.widget.SeekBar
 
 /** Contains UI elements for Hello AR. */
 class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   val root = View.inflate(activity, R.layout.spatial_vision, null)
   val surfaceView = root.findViewById<GLSurfaceView>(R.id.surfaceview)
+
+  val slider = root.findViewById<SeekBar>(R.id.radius_slider)
   var showCardLabel = true
   val settingsButton =
     root.findViewById<ImageButton>(R.id.settings_button).apply {
       setOnClickListener { v ->
         PopupMenu(activity, v).apply {
+          inflate(R.menu.settings_menu)
+
+          menu.findItem(R.id.card)?.isChecked = showCardLabel
+
           setOnMenuItemClickListener { item ->
             when (item.itemId) {
               R.id.depth_settings -> launchDepthSettingsMenuDialog()
               R.id.instant_placement_settings -> launchInstantPlacementSettingsMenuDialog()
               R.id.card -> {
                 showCardLabel = !showCardLabel
-
-                // Optional: update menu title dynamically
-                item.title = if (showCardLabel) {
-                  "Show Simple Label"
-                } else {
-                  "Show Card Label"
-                }
-
+                item.isChecked = showCardLabel
                 true
               }
               else -> null
             } != null
           }
-          inflate(R.menu.settings_menu)
+//          inflate(R.menu.settings_menu)
           show()
         }
       }

@@ -27,6 +27,18 @@ tools:context="com.wsp.plugins.spatialvision.helloar.HelloArActivity">
     android:src="@drawable/ic_settings"
     android:background="@android:color/transparent"/>
 
+    <SeekBar
+        android:id="@+id/radius_slider"
+        android:layout_width="150dp"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_below="@id/settings_button"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="20dp"
+        android:max="200"
+        android:progress="10"
+        android:background="@android:color/transparent"/>
+
 <!-- Distance Overlay -->
 <LinearLayout
     android:id="@+id/distance_container"
@@ -47,21 +59,29 @@ tools:context="com.wsp.plugins.spatialvision.helloar.HelloArActivity">
         android:layout_height="wrap_content"
         android:layout_width="wrap_content"/>
 
-    <TextView
-        android:id="@+id/distance_cam_obj1"
-        android:text="@string/cam_to_obj1"
-        android:textColor="#FFFFFF"
-        android:textSize="16sp"
-        android:layout_height="wrap_content"
-        android:layout_width="wrap_content"/>
+<!--    <TextView-->
+<!--        android:id="@+id/distance_cam_obj1"-->
+<!--        android:text="@string/cam_to_obj1"-->
+<!--        android:textColor="#FFFFFF"-->
+<!--        android:textSize="16sp"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_width="wrap_content"/>-->
 
-    <TextView
-        android:id="@+id/distance_cam_obj2"
-        android:text="@string/cam_to_obj2"
-        android:textColor="#FFFFFF"
-        android:textSize="16sp"
-        android:layout_height="wrap_content"
-        android:layout_width="wrap_content"/>
+<!--    <TextView-->
+<!--        android:id="@+id/distance_cam_obj2"-->
+<!--        android:text="@string/cam_to_obj2"-->
+<!--        android:textColor="#FFFFFF"-->
+<!--        android:textSize="16sp"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_width="wrap_content"/>-->
+        <TextView
+            android:id="@+id/depth_confidence"
+            android:text="@string/depth_confidence"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_height="wrap_content"
+            android:layout_width="wrap_content"/>
+
 </LinearLayout>
 
 </RelativeLayout>

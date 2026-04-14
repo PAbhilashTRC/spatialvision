@@ -35,7 +35,12 @@
     <string translatable="false" name="unknowError">Error unknow</string>
     <string translatable="false" name="waiting_taps">Tap on a surface to place an object.</string>
     <string translatable="false" name="cam_to_obj1">Camera → Obj1: </string>
+    <string translatable="false" name="depth_confidence"> </string>
+
     <string translatable="false" name="cam_to_obj2">Camera → Obj2: </string>
     <string translatable="false" name="obj1_to_obj2">Obj 1 -> Obj 2:</string>
     <string translatable="false" name="close">Close</string>
+    <string translatable="false" name="card">Card</string>
+    <string translatable="false" name="toggle">Toggle</string>
+
 </resources>
