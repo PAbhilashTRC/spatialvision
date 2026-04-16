@@ -12,7 +12,6 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.google.ar.core.Anchor
 import com.google.ar.core.Camera
-import com.google.ar.core.Coordinates2d
 import com.google.ar.core.DepthPoint
 import com.google.ar.core.Frame
 import com.google.ar.core.InstantPlacementPoint
@@ -40,8 +39,6 @@ import com.wsp.plugins.spatialvision.common.samplerender.arcore.BackgroundRender
 import com.wsp.plugins.spatialvision.common.samplerender.arcore.SpecularCubemapFilter
 import java.io.IOException
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import kotlin.properties.Delegates
 
 /** Renders the HelloAR application using our example Renderer. */
 class HelloArRenderer(val activity: HelloArActivity) :
@@ -67,23 +64,11 @@ class HelloArRenderer(val activity: HelloArActivity) :
         private val Z_NEAR = 0.1f
         private val Z_FAR = 100f
 
-        // Assumed distance from the device camera to the surface on which user will try to place
-        // objects.
-        // This value affects the apparent scale of objects while the tracking method of the
-        // Instant Placement point is SCREENSPACE_WITH_APPROXIMATE_DISTANCE.
-        // Values in the [0.2, 2.0] meter range are a good choice for most AR experiences. Use lower
-        // values for AR experiences where users are expected to place objects on surfaces close to the
-        // camera. Use larger values for experiences where the user will likely be standing and trying
-        // to
-        // place an object on the ground or floor in front of them.
-        val APPROXIMATE_DISTANCE_METERS = 2.0f
-
         val CUBEMAP_RESOLUTION = 16
         val CUBEMAP_NUMBER_OF_IMPORTANCE_SAMPLES = 32
     }
 
     lateinit var render: SampleRender
-//    lateinit var planeRenderer: PlaneRenderer
     lateinit var backgroundRenderer: BackgroundRenderer
     lateinit var virtualSceneFramebuffer: Framebuffer
     var hasSetTextureNames = false
@@ -123,7 +108,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
     val isCard = activity.view.showCardLabel
     var depthConfidence: Int? = null;
 
-    private var cylinder: Cylinder? = null
+//    private var cylinder: Cylinder? = null
+    private lateinit var cylinder: Cylinder
+    private var poleWire: PoleWire? = null
 
     val modelViewProjectionMatrix = FloatArray(16) // projection x view x model
 
@@ -142,6 +129,14 @@ class HelloArRenderer(val activity: HelloArActivity) :
     var selectedAnchor: WrappedAnchor? = null
 
     private var lastUpdateTime = 0L
+
+    enum class Mode {
+        AUTO, POLE, WIRE
+    }
+
+
+    private lateinit var sceneManager: SceneManager
+    private lateinit var tapHandler: TapHandler
 
     override fun onResume(owner: LifecycleOwner) {
         displayRotationHelper.onResume()
@@ -238,8 +233,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     Texture.ColorFormat.LINEAR
                 )
 //            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn.obj")
-//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring4.obj")
-            virtualObjectMesh = Mesh.createFromAsset(render, "models/pole.obj")
+            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring4.obj")
+//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pole.obj")
             virtualObjectShader =
                 Shader.createFromAssets(
                     render,
@@ -258,6 +253,30 @@ class HelloArRenderer(val activity: HelloArActivity) :
             labelRenderer = LabelRender().also {
                 it.onSurfaceCreated(render)
             }
+
+            sceneManager = SceneManager(cylinder!!)
+            tapHandler = TapHandler(sceneManager)
+
+            activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+
+                @SuppressLint("SetTextI18n")
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val minRadius = 0.01f   // 1 cm
+                    val maxRadius = 0.5f    // 50 cm
+
+                    val t = progress / 100f
+                    val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
+                    val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
+                    activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
+                    activity.view.slider_value.text = "Slider Value : $progress"
+//                val radius = progress / 1000f  // scale factor
+                    cylinder?.setRadius(radiusMeters)
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
         } catch (e: IOException) {
             Log.e(TAG, "Failed to read a required asset file", e)
             showError("Failed to read a required asset file: $e")
@@ -436,27 +455,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
             else if (obj2Pos == null) obj2Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
         }
 
-        activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-
-            @SuppressLint("SetTextI18n")
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val minRadius = 0.01f   // 1 cm
-                val maxRadius = 0.5f    // 50 cm
-
-                val t = progress / 100f
-                val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
-                val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
-                activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
-                activity.view.slider_value.text = "Slider Value : $progress"
-//                val radius = progress / 1000f  // scale factor
-                cylinder?.setRadius(radiusMeters)
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-
         // --- Draw line between first 2 anchors ---
         if (obj1Pos != null && obj2Pos != null) {
             cylinder?.draw(
@@ -467,10 +465,10 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 projectionMatrix)
 
             // --- Distance updates ---
-            val distObjToObj = distance(obj1Pos, obj2Pos)
-            val distCamToObj1 = distance(cameraPos, obj1Pos)
-            val distCamToObj2 = distance(cameraPos, obj2Pos)
-            val midpoint = getMidPoint(obj1Pos, obj2Pos)
+            val distObjToObj = MathUtils.distance(obj1Pos, obj2Pos)
+            val distCamToObj1 = MathUtils.distance(cameraPos, obj1Pos)
+            val distCamToObj2 = MathUtils.distance(cameraPos, obj2Pos)
+            val midpoint = MathUtils.getMidPoint(obj1Pos, obj2Pos)
 
             val up = FloatArray(3)
             cameraPose.getTransformedAxis(1, 1.0f, up, 0)
@@ -510,6 +508,18 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     )
             }
             activity.updateDistances(distObjToObj, distCamToObj1, distCamToObj2, depthConfidence)
+        }
+
+        for (pole in sceneManager.poles) {
+            cylinder?.draw(render, pole.base.position, pole.top.position, viewMatrix, projectionMatrix)
+
+            pole.crossArms.forEach {
+                cylinder?.draw(render, it.start, it.end, viewMatrix, projectionMatrix)
+            }
+        }
+
+        for (wire in sceneManager.wires) {
+            poleWire?.drawWire(render, wire.points, viewMatrix, projectionMatrix)
         }
 
          // --- Compose virtual scene with background ---
@@ -584,12 +594,15 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     // Handle only one tap per frame, as taps are usually low frequency compared to frame rate.
     private fun handleTap(frame: Frame, camera: Camera) {
+        val session = session ?: return
         if (camera.trackingState != TrackingState.TRACKING) return
+
 
         val tapHelper = activity.view.tapHelper
         if (tapHelper.isDragging()) return
 
-        val tap = activity.view.tapHelper.pollTap() ?: return
+//        val tap = activity.view.tapHelper.pollTap()
+        val tap = tapHelper.pollTap() ?: return
 
         val selected = findSelectedAnchor(frame, tap)
         if(selected != null){
@@ -597,44 +610,15 @@ class HelloArRenderer(val activity: HelloArActivity) :
             currentMode = InteractionMode.SELECTED
             return
         }
+            tapHandler.onTap(session,frame, camera, tap)
 
-        val createdAnchor = getStableDepthAnchor(frame, camera, tap)
-
-        val finalAnchor: Anchor?
-        var trackable: Trackable? = null
-
-        if (createdAnchor != null) {
-            finalAnchor = createdAnchor
-        } else {
-
-            val hit = frame.hitTest(tap.x, tap.y).firstOrNull {
-                it.trackable is DepthPoint ||
-                        it.trackable is Plane ||
-                        it.trackable is InstantPlacementPoint
-            }
-
-            finalAnchor = hit?.createAnchor()
-            trackable = hit?.trackable
-        }
-
-        if (finalAnchor != null) {
-
-            if (wrappedAnchors.size >= 2) {
-                wrappedAnchors[0].anchor.detach()
-                wrappedAnchors.removeAt(0)
-            }
-
-            wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable, false))
-
-            activity.runOnUiThread {
-                activity.view.showOcclusionDialogIfNeeded()
-            }
-        }
     }
 
     private fun handleDrag(frame: Frame, camera: Camera) {
+        val session = session ?: return
 
         if (camera.trackingState != TrackingState.TRACKING) return
+
 
         val tapHelper = activity.view.tapHelper
 
@@ -676,7 +660,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     if (System.currentTimeMillis() - lastUpdateTime < 50) return
 
                     val newAnchor =
-                        getStableDepthAnchor(frame, camera, event)
+                        tapHandler.getStableDepthAnchor(session, frame, camera, event)
                             ?: frame.hitTest(event.x, event.y)
                                 .firstOrNull {
                                     it.trackable is DepthPoint ||
@@ -694,132 +678,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
             }
         }
     }
-
-    private fun getStableDepthAnchor(
-        frame: Frame,
-        camera: Camera,
-        tap: MotionEvent
-    ): Anchor? {
-
-        if (camera.trackingState != TrackingState.TRACKING) return null
-
-        try {
-            frame.acquireRawDepthImage16Bits().use { depthImage ->
-                frame.acquireRawDepthConfidenceImage().use { confidenceImage ->
-
-                    // ✅ Ensure fresh depth (VERY IMPORTANT)
-                    val isFresh = frame.timestamp == depthImage.timestamp
-                    if (!isFresh) return null
-
-                    val width = depthImage.width
-                    val height = depthImage.height
-
-                    val depthBuffer =
-                        depthImage.planes[0].buffer.order(ByteOrder.nativeOrder())
-                    val confBuffer = confidenceImage.planes[0].buffer
-
-                    // ✅ Convert tap → depth pixel coordinates
-                    val coords = FloatArray(2)
-                    frame.transformCoordinates2d(
-                        Coordinates2d.VIEW,
-                        floatArrayOf(tap.x, tap.y),
-                        Coordinates2d.IMAGE_PIXELS,
-                        coords
-                    )
-
-                    val cx = coords[0].toInt()
-                    val cy = coords[1].toInt()
-
-                    if (cx !in 0 until width || cy !in 0 until height) return null
-
-                    // ✅ Multi-sample (critical for stability)
-                    val samples = mutableListOf<FloatArray>()
-
-                    val offsets = listOf(
-                        0 to 0,
-                        -2 to 0, 2 to 0,
-                        0 to -2, 0 to 2
-                    )
-
-                    val intrinsics = camera.textureIntrinsics
-                    val fx = intrinsics.focalLength[0]
-                    val fy = intrinsics.focalLength[1]
-                    val px = intrinsics.principalPoint[0]
-                    val py = intrinsics.principalPoint[1]
-
-                    for ((ox, oy) in offsets) {
-                        val x = cx + ox
-                        val y = cy + oy
-
-                        if (x !in 0 until width || y !in 0 until height) continue
-
-                        val index = x + y * width
-
-                        val depthMm =
-                            depthBuffer.getShort(index * 2).toInt() and 0xFFFF
-                        val confidence = confBuffer.get(index).toInt() and 0xFF
-                        depthConfidence = confidence
-
-                        // ✅ Strong filtering
-                        if (depthMm < 300 || depthMm > 4000) continue
-                        if (confidence < 80) continue
-
-                        val z = depthMm / 1000f
-
-                        // ✅ Correct projection (CRITICAL FIX)
-                        val X = (x - px) / fx * z
-                        val Y = (y - py) / fy * z
-
-                        val cameraPoint = floatArrayOf(X, Y, z)
-                        val worldPoint = FloatArray(3)
-
-                        camera.pose.transformPoint(cameraPoint, 0, worldPoint, 0)
-
-                        samples.add(worldPoint)
-                    }
-
-                    if (samples.size < 3) return null
-
-                    // ✅ Average = stable anchor
-                    val avg = FloatArray(3)
-
-                    for (p in samples) {
-                        avg[0] += p[0]
-                        avg[1] += p[1]
-                        avg[2] += p[2]
-                    }
-
-                    val size = samples.size.toFloat()
-
-                    avg[0] = avg[0] / size
-                    avg[1] = avg[1] / size
-                    avg[2] = avg[2] / size
-
-                    return session?.createAnchor(
-                        Pose(avg, floatArrayOf(0f, 0f, 0f, 1f))
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            return null
-        }
-    }
-
-    private fun distance(p1: FloatArray, p2: FloatArray): Float {
-        val dx = p1[0] - p2[0]
-        val dy = p1[1] - p2[1]
-        val dz = p1[2] - p2[2]
-        return Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble()).toFloat()
-    }
-
-    fun getMidPoint(p1: FloatArray, p2: FloatArray): FloatArray {
-        return floatArrayOf(
-            (p1[0] + p2[0]) / 2f,
-            (p1[1] + p2[1]) / 2f,
-            (p1[2] + p2[2]) / 2f
-        )
-    }
-
     fun findSelectedAnchor(frame: Frame, tap: MotionEvent): WrappedAnchor? {
 
         val thresholdPx = 100f
@@ -895,6 +753,29 @@ public data class WrappedAnchor(
     var anchor: Anchor,
     val trackable: Trackable?,
     var isSelected: Boolean = false
+)
+
+data class AnchorPoint(
+    var anchor: Anchor,
+    var position: FloatArray
+)
+
+data class CrossArm(
+    val start: FloatArray,
+    val end: FloatArray,
+    val id: String = java.util.UUID.randomUUID().toString()
+)
+
+data class Pole(
+    val base: AnchorPoint,
+    val top: AnchorPoint,
+    val crossArms: MutableList<CrossArm> = mutableListOf()
+)
+
+data class Wire(
+    val startArm: CrossArm,
+    val endArm: CrossArm,
+    val points: FloatArray
 )
 
 enum class InteractionMode {
