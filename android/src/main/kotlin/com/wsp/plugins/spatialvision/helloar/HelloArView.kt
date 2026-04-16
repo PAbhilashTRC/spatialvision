@@ -28,6 +28,7 @@ import com.wsp.plugins.spatialvision.R
 import com.wsp.plugins.spatialvision.common.helpers.SnackbarHelper
 import com.wsp.plugins.spatialvision.common.helpers.TapHelper
 import android.widget.SeekBar
+import android.widget.TextView
 
 /** Contains UI elements for Hello AR. */
 class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
@@ -35,7 +36,10 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   val surfaceView = root.findViewById<GLSurfaceView>(R.id.surfaceview)
 
   val slider = root.findViewById<SeekBar>(R.id.radius_slider)
-  var showCardLabel = true
+  val slider_value = root.findViewById<TextView>(R.id.slider_value)
+
+  val pipeRadius = root.findViewById<TextView>( R.id.radius)
+  var showCardLabel = false
   val settingsButton =
     root.findViewById<ImageButton>(R.id.settings_button).apply {
       setOnClickListener { v ->

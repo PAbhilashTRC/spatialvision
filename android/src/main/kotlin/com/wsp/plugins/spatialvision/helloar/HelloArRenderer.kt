@@ -2,6 +2,7 @@ package com.wsp.plugins.spatialvision.helloar
 
 //import com.wsp.plugins.spatialvision.common.samplerender.arcore.PlaneRenderer
 //import com.wsp.plugins.spatialvision.GeoSpatial
+import android.annotation.SuppressLint
 import android.opengl.GLES30
 import android.opengl.Matrix
 import android.util.Log
@@ -237,7 +238,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     Texture.ColorFormat.LINEAR
                 )
 //            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn.obj")
-            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring4.obj")
+//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring4.obj")
+            virtualObjectMesh = Mesh.createFromAsset(render, "models/pole.obj")
             virtualObjectShader =
                 Shader.createFromAssets(
                     render,
@@ -436,9 +438,18 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
 
+            @SuppressLint("SetTextI18n")
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val radius = progress / 1000f  // scale factor
-                cylinder?.setRadius(radius)
+                val minRadius = 0.01f   // 1 cm
+                val maxRadius = 0.5f    // 50 cm
+
+                val t = progress / 100f
+                val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
+                val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
+                activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
+                activity.view.slider_value.text = "Slider Value : $progress"
+//                val radius = progress / 1000f  // scale factor
+                cylinder?.setRadius(radiusMeters)
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
