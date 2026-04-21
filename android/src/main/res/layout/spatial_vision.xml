@@ -67,20 +67,20 @@ tools:context="com.wsp.plugins.spatialvision.helloar.HelloArActivity">
         android:layout_height="wrap_content"
         android:layout_width="wrap_content"/>
 
-    <TextView
-        android:id="@+id/slider_value"
-        android:text="@string/slider_value"
-        android:textColor="#FFFFFF"
-        android:textSize="16sp"
-        android:layout_height="wrap_content"
-        android:layout_width="wrap_content"/>
-        <TextView
-            android:id="@+id/depth_confidence"
-            android:text="@string/depth_confidence"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:layout_height="wrap_content"
-            android:layout_width="wrap_content"/>
+<!--    <TextView-->
+<!--        android:id="@+id/slider_value"-->
+<!--        android:text="@string/slider_value"-->
+<!--        android:textColor="#FFFFFF"-->
+<!--        android:textSize="16sp"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_width="wrap_content"/>-->
+<!--        <TextView-->
+<!--            android:id="@+id/depth_confidence"-->
+<!--            android:text="@string/depth_confidence"-->
+<!--            android:textColor="#FFFFFF"-->
+<!--            android:textSize="16sp"-->
+<!--            android:layout_height="wrap_content"-->
+<!--            android:layout_width="wrap_content"/>-->
 
 </LinearLayout>
 

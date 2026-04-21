@@ -14,18 +14,14 @@ import com.google.ar.core.Anchor
 import com.google.ar.core.Camera
 import com.google.ar.core.DepthPoint
 import com.google.ar.core.Frame
-import com.google.ar.core.InstantPlacementPoint
 import com.google.ar.core.LightEstimate
 import com.google.ar.core.Plane
 import com.google.ar.core.Pose
 import com.google.ar.core.Session
 import com.google.ar.core.Trackable
-import com.google.ar.core.TrackingFailureReason
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.NotYetAvailableException
-import com.wsp.plugins.spatialvision.R
-import com.wsp.plugins.spatialvision.common.helpers.ARLabelData
 import com.wsp.plugins.spatialvision.common.helpers.DisplayRotationHelper
 import com.wsp.plugins.spatialvision.common.helpers.TrackingStateHelper
 import com.wsp.plugins.spatialvision.common.samplerender.Framebuffer
@@ -97,20 +93,22 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     // Temporary matrix allocated here to reduce number of allocations for each frame.
     val modelMatrix = FloatArray(16)
+    val baseModelMatrix = FloatArray(16)
+    val topModelMatrix = FloatArray(16)
     val viewMatrix = FloatArray(16)
     val projectionMatrix = FloatArray(16)
     val modelViewMatrix = FloatArray(16) // view x model
 
     val labelViewProjectionMatrix  = FloatArray(16) // view x projection
 
-    private var labelRenderer: LabelRender? = null
+    private lateinit var labelRenderer: LabelRender
 
     val isCard = activity.view.showCardLabel
     var depthConfidence: Int? = null;
 
 //    private var cylinder: Cylinder? = null
     private lateinit var cylinder: Cylinder
-    private var poleWire: PoleWire? = null
+    private lateinit var poleWire: PoleWire
 
     val modelViewProjectionMatrix = FloatArray(16) // projection x view x model
 
@@ -133,7 +131,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
     enum class Mode {
         AUTO, POLE, WIRE
     }
-
+    private var exporter: ObjExporter = ObjExporter()
 
     private lateinit var sceneManager: SceneManager
     private lateinit var tapHandler: TapHandler
@@ -254,7 +252,11 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 it.onSurfaceCreated(render)
             }
 
-            sceneManager = SceneManager(cylinder!!)
+//            poleWire = PoleWire().also{
+//                it.onSurfaceCreated(render = render)
+//            }
+
+            sceneManager = SceneManager(cylinder)
             tapHandler = TapHandler(sceneManager)
 
             activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -268,7 +270,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
                     val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
                     activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
-                    activity.view.slider_value.text = "Slider Value : $progress"
+//                    activity.view.slider_value.text = "Slider Value : $progress"
 //                val radius = progress / 1000f  // scale factor
                     cylinder?.setRadius(radiusMeters)
                 }
@@ -291,114 +293,72 @@ class HelloArRenderer(val activity: HelloArActivity) :
     override fun onDrawFrame(render: SampleRender) {
         val session = session ?: return
 
-        // Texture names should only be set once on a GL thread unless they change. This is done during
-        // onDrawFrame rather than onSurfaceCreated since the session is not guaranteed to have been
-        // initialized during the execution of onSurfaceCreated.
+        // --- Setup camera texture ---
         if (!hasSetTextureNames) {
             session.setCameraTextureNames(intArrayOf(backgroundRenderer.cameraColorTexture.textureId))
             hasSetTextureNames = true
         }
 
-        // -- Update per-frame state
-
-        // Notify ARCore session that the view size changed so that the perspective matrix and
-        // the video background can be properly adjusted.
         displayRotationHelper.updateSessionIfNeeded(session)
 
-        // Obtain the current frame from ARSession. When the configuration is set to
-        // UpdateMode.BLOCKING (it is by default), this will throttle the rendering to the
-        // camera framerate.
-        val frame =
-            try {
-                session.update()
-            } catch (e: CameraNotAvailableException) {
-                Log.e(TAG, "Camera not available during onDrawFrame", e)
-                showError("Camera not available. Try restarting the app.")
-                return
-            }
+        val frame = try {
+            session.update()
+        } catch (e: CameraNotAvailableException) {
+            Log.e(TAG, "Camera not available", e)
+            showError("Camera not available. Try restarting.")
+            return
+        }
 
         val camera = frame.camera
 
-        // Update BackgroundRenderer state to match the depth settings.
+        // --- Background / Depth ---
         try {
             backgroundRenderer.setUseDepthVisualization(
                 render,
                 activity.depthSettings.depthColorVisualizationEnabled()
             )
-            backgroundRenderer.setUseOcclusion(render, activity.depthSettings.useDepthForOcclusion())
+            backgroundRenderer.setUseOcclusion(
+                render,
+                activity.depthSettings.useDepthForOcclusion()
+            )
         } catch (e: IOException) {
-            Log.e(TAG, "Failed to read a required asset file", e)
-            showError("Failed to read a required asset file: $e")
+            Log.e(TAG, "Assets error", e)
             return
         }
 
-        // BackgroundRenderer.updateDisplayGeometry must be called every frame to update the coordinates
-        // used to draw the background camera image.
         backgroundRenderer.updateDisplayGeometry(frame)
-        val shouldGetDepthImage =
-            activity.depthSettings.useDepthForOcclusion() ||
-                    activity.depthSettings.depthColorVisualizationEnabled()
-        if (camera.trackingState == TrackingState.TRACKING && shouldGetDepthImage) {
+
+        if (camera.trackingState == TrackingState.TRACKING &&
+            (activity.depthSettings.useDepthForOcclusion() ||
+                    activity.depthSettings.depthColorVisualizationEnabled())
+        ) {
             try {
                 val depthImage = frame.acquireDepthImage16Bits()
                 backgroundRenderer.updateCameraDepthTexture(depthImage)
                 depthImage.close()
-            } catch (e: NotYetAvailableException) {
-                // This normally means that depth data is not available yet. This is normal so we will not
-                // spam the logcat with this.
-            }
+            } catch (_: NotYetAvailableException) {}
         }
 
-        // Handle one tap per frame.
+        // --- Input ---
         handleTap(frame, camera)
         handleDrag(frame, camera)
 
-        // Keep the screen unlocked while tracking, but allow it to lock when tracking stops.
         trackingStateHelper.updateKeepScreenOnFlag(camera.trackingState)
 
-        // Show a message based on whether tracking has failed, if planes are detected, and if the user
-        // has placed any objects.
-        val message: String? =
-            when {
-                camera.trackingState == TrackingState.PAUSED &&
-                        camera.trackingFailureReason == TrackingFailureReason.NONE ->
-                    activity.getString(R.string.searching_planes)
-                camera.trackingState == TrackingState.PAUSED ->
-                    TrackingStateHelper.getTrackingFailureReasonString(camera)
-                session.hasTrackingPlane() && wrappedAnchors.isEmpty() ->
-                    activity.getString(R.string.waiting_taps)
-                session.hasTrackingPlane() && wrappedAnchors.isNotEmpty() -> null
-                else -> activity.getString(R.string.searching_planes)
-            }
-        if (message == null) {
-            activity.view.snackbarHelper.hide(activity)
-        } else {
-            activity.view.snackbarHelper.showMessage(activity, message)
-        }
-
-        // -- Draw background
+        // --- Draw background ---
         if (frame.timestamp != 0L) {
-            // Suppress rendering if the camera did not produce the first frame yet. This is to avoid
-            // drawing possible leftover data from previous sessions if the texture is reused.
             backgroundRenderer.drawBackground(render)
         }
 
-        // If not tracking, don't draw 3D objects.
-        if (camera.trackingState == TrackingState.PAUSED) {
-            return
-        }
+        if (camera.trackingState == TrackingState.PAUSED) return
 
-        // -- Draw non-occluded virtual objects (planes, point cloud)
-
-        // Get projection matrix.
+        // --- Matrices ---
         camera.getProjectionMatrix(projectionMatrix, 0, Z_NEAR, Z_FAR)
-
-        // Get camera matrix and draw.
         camera.getViewMatrix(viewMatrix, 0)
 
         val cameraPose = camera.pose
-        val cameraPos = floatArrayOf(cameraPose.tx(), cameraPose.ty(), cameraPose.tz())
 
+        // --- Point Cloud ---
         frame.acquirePointCloud().use { pointCloud ->
             if (pointCloud.timestamp > lastPointCloudTimestamp) {
                 pointCloudVertexBuffer.set(pointCloud.points)
@@ -409,123 +369,120 @@ class HelloArRenderer(val activity: HelloArActivity) :
             render.draw(pointCloudMesh, pointCloudShader)
         }
 
-        // Visualize planes.
-//        planeRenderer.drawPlanes(
-//            render,
-//            session.getAllTrackables<Plane>(Plane::class.java),
-//            camera.displayOrientedPose,
-//            projectionMatrix
-//        )
-
-        // -- Draw occluded virtual objects
-
-        // Update lighting parameters in the shader
+        // --- Lighting ---
         updateLightEstimation(frame.lightEstimate, viewMatrix)
 
-        // Visualize anchors created by touch.
+        // --- Virtual Scene ---
         render.clear(virtualSceneFramebuffer, 0f, 0f, 0f, 0f)
-        var obj1Pos: FloatArray? = null
-        var obj2Pos: FloatArray? = null
+        Matrix.multiplyMM(labelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
 
-        for ((anchor, trackable) in
-        wrappedAnchors.filter { it.anchor.trackingState == TrackingState.TRACKING }) {
-            // Get the current pose of an Anchor in world space. The Anchor pose is updated
-            // during calls to session.update() as ARCore refines its estimate of the world.
-            anchor.pose.toMatrix(modelMatrix, 0)
+        // ============================================================
+        // 🔥 DRAW POLES + DISTANCES
+        // ============================================================
+        for (pole in sceneManager.poles) {
 
-            // Calculate model/view/projection matrices
-            Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0)
-            Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0)
+            val start = pole.base.position   // world coords
+            val end = pole.top.position
 
-            // Update shader properties and draw
-            virtualObjectShader.setMat4("u_ModelView", modelViewMatrix)
-            virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix)
-            val texture =
-                if ((trackable as? InstantPlacementPoint)?.trackingMethod ==
-                    InstantPlacementPoint.TrackingMethod.SCREENSPACE_WITH_APPROXIMATE_DISTANCE
-                ) {
-                    virtualObjectAlbedoInstantPlacementTexture
-                } else {
-                    virtualObjectAlbedoTexture
-                }
-            virtualObjectShader.setTexture("u_AlbedoTexture", texture)
-            render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer)
-            // Store positions for line & distance
-            if (obj1Pos == null) obj1Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
-            else if (obj2Pos == null) obj2Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
-        }
+            val pipeLabelPose = calculateMidValueForLabel(start, end)
+            val pipeLabelData = labelRenderer.calculateDistance(start, end)
+            // --- Draw pole (cylinder) ---
+            cylinder.draw(render, start, end, viewMatrix, projectionMatrix)
 
-        // --- Draw line between first 2 anchors ---
-        if (obj1Pos != null && obj2Pos != null) {
-            cylinder?.draw(
-                render,
-                obj1Pos,
-                obj2Pos,
-                viewMatrix,
-                projectionMatrix)
-
-            // --- Distance updates ---
-            val distObjToObj = MathUtils.distance(obj1Pos, obj2Pos)
-            val distCamToObj1 = MathUtils.distance(cameraPos, obj1Pos)
-            val distCamToObj2 = MathUtils.distance(cameraPos, obj2Pos)
-            val midpoint = MathUtils.getMidPoint(obj1Pos, obj2Pos)
-
-            val up = FloatArray(3)
-            cameraPose.getTransformedAxis(1, 1.0f, up, 0)
-
-            midpoint[0] += up[0] * 0.05f
-            midpoint[1] += up[1] * 0.05f
-            midpoint[2] += up[2] * 0.05f
-            val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
-            val labelText = String.format("%.2f m", distObjToObj)
-            Matrix.multiplyMM(labelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
-
-            // ---------------------------
-            // DRAW LABEL (SAFE PATH)
-            // ---------------------------
-            val obj1Formatted = obj1Pos.joinToString(", ") { "%.2f".format(it) }
-            val obj2Formatted = obj2Pos.joinToString(", ") { "%.2f".format(it) }
-            var confidence = ""
-            if(depthConfidence != null){
-                confidence = depthConfidence.toString()
-            }
-            val measureWithMetadata = ARLabelData(title ="Measuring Tool",
-                measurement = labelText,
-                sourceA = obj1Formatted,
-                sourceB = obj2Formatted,
-                confidence = confidence
+            // --- Distance label (Pole height) ---
+            labelRenderer.draw(
+                render = render,
+                viewProjectionMatrix = labelViewProjectionMatrix,
+                pose =pipeLabelPose,
+                cameraPose = camera.displayOrientedPose,
+                data = pipeLabelData,
+                showCard = activity.view.showCardLabel
             )
 
-
-            labelRenderer?.let { lr ->
-                    lr.draw(
-                        render = render,
-                        viewProjectionMatrix = labelViewProjectionMatrix,
-                        cameraPose = camera.displayOrientedPose,
-                        pose = labelPose,
-                        data = measureWithMetadata,
-                        showCard = activity.view.showCardLabel
+            // ========================================================
+            // 🔥 CROSS ARMS
+            // ========================================================
+            pole.crossArms.forEach { arm ->
+                cylinder.draw(render, arm.localStart, arm.localEnd, viewMatrix, projectionMatrix, uColor = floatArrayOf(0.4f, 0.3f, 0.2f, 1f))
+                val labelData = labelRenderer.calculateDistance(
+                    start = arm.localStart,
+                    end = arm.localEnd,
+                )
+                val crassArmPose = calculateMidValueForLabel(arm.localStart, arm.localEnd)
+                labelRenderer.draw(
+                    render = render,
+                    viewProjectionMatrix = labelViewProjectionMatrix,
+                    pose =crassArmPose,
+                    cameraPose = camera.displayOrientedPose,
+                    data = labelData,
+                    showCard = activity.view.showCardLabel
                     )
+
+                // ========================================================
+                // 🔥 Insulators
+                // ========================================================
+
+                val attachmentPoints = sceneManager.getAttachmentPoints(arm)
+
+                attachmentPoints.forEach { p ->
+                    // 🔥 direction should be from insulator → opposite pole
+                    val wireDir = MathUtils.normalize(
+                        floatArrayOf(
+                            arm.localEnd.x - arm.localStart.x,
+                            arm.localEnd.y - arm.localStart.y,
+                            arm.localEnd.z - arm.localStart.z
+                        )
+                    )
+
+                    val gravityBias = floatArrayOf(0f, -0.2f, 0f)
+
+                    val tiltDir = MathUtils.normalize(
+                        floatArrayOf(
+                            wireDir[0] + gravityBias[0],
+                            wireDir[1] + gravityBias[1],
+                            wireDir[2] + gravityBias[2]
+                        )
+                    )
+
+                    cylinder.drawInsulator(
+                        render,
+                        p,          // ✅ USE ACTUAL POINT
+                        tiltDir,
+                        viewMatrix,
+                        projectionMatrix
+                    )
+                }
+
             }
-            activity.updateDistances(distObjToObj, distCamToObj1, distCamToObj2, depthConfidence)
         }
 
-        for (pole in sceneManager.poles) {
-            cylinder?.draw(render, pole.base.position, pole.top.position, viewMatrix, projectionMatrix)
-
-            pole.crossArms.forEach {
-                cylinder?.draw(render, it.start, it.end, viewMatrix, projectionMatrix)
-            }
-        }
-
+        // ============================================================
+        // 🔥 WIRES
+        // ============================================================
         for (wire in sceneManager.wires) {
-            poleWire?.drawWire(render, wire.points, viewMatrix, projectionMatrix)
+            for (i in 0 until wire.points.size - 1) {
+                val p1 = wire.points[i]
+                val p2 = wire.points[i + 1]
+                cylinder.setRadius(0.005f)
+                cylinder.draw(
+                    render,
+                    p1,
+                    p2,
+                    viewMatrix,
+                    projectionMatrix,
+                    floatArrayOf(0.55f, 0.56f, 0.58f, 1f)
+                )
+            }
+
         }
 
-         // --- Compose virtual scene with background ---
-
-        // Compose the virtual scene with the background.
-        backgroundRenderer.drawVirtualScene(render, virtualSceneFramebuffer, Z_NEAR, Z_FAR)
+        // --- Compose final scene ---
+        backgroundRenderer.drawVirtualScene(
+            render,
+            virtualSceneFramebuffer,
+            Z_NEAR,
+            Z_FAR
+        )
     }
 
     /** Checks if we detected at least one plane. */
@@ -590,6 +547,194 @@ class HelloArRenderer(val activity: HelloArActivity) :
             "u_SphericalHarmonicsCoefficients",
             sphericalHarmonicsCoefficients
         )
+    }
+
+    fun calculateMidValueForLabel(start: Vec3, end: Vec3): Pose{
+        val up = FloatArray(3)
+        val midpoint = MathUtils.getMidPoint(start, end)
+        midpoint[0] += up[0] * 0.05f
+        midpoint[1] += up[1] * 0.05f
+        midpoint[2] += up[2] * 0.05f
+        val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
+        return labelPose
+    }
+
+    fun exportScene(): String {
+
+        val exporter = ObjExporter()
+
+        // =========================================================
+        // 🔵 POLES
+        // =========================================================
+        for (pole in sceneManager.poles) {
+
+            val start = pole.base.position
+            val end = pole.top.position
+
+            val (verts, faces) = cylinder.generateCylinderMeshWorld(start, end)
+
+            val baseIndex = exporter.vertexCount()
+
+            verts.forEach {
+                exporter.addVertex(Vec3(it[0], it[1], it[2]))
+            }
+
+            for (f in faces) {
+                exporter.addFace(
+                    baseIndex + f[0] + 1,
+                    baseIndex + f[1] + 1,
+                    baseIndex + f[2] + 1
+                )
+            }
+
+            // =====================================================
+            // 🟫 CROSS ARMS
+            // =====================================================
+            pole.crossArms.forEach { arm ->
+
+                val (aVerts, aFaces) = cylinder.generateCylinderMeshWorld(
+                    arm.localStart,
+                    arm.localEnd
+                )
+
+                val armBase = exporter.vertexCount()
+                aVerts.forEach {
+                    exporter.addVertex(Vec3(it[0], it[1], it[2]))
+                }
+
+                aFaces.forEach {
+                    exporter.addFace(
+                        armBase + it[0] + 1,
+                        armBase + it[1] + 1,
+                        armBase + it[2] + 1
+                    )
+                }
+
+                // =====================================================
+                // 🔩 INSULATOR (FIXED)
+                // =====================================================
+
+                val mid = Vec3(
+                    (arm.localStart.x + arm.localEnd.x) * 0.5f,
+                    (arm.localStart.y + arm.localEnd.y) * 0.5f,
+                    (arm.localStart.z + arm.localEnd.z) * 0.5f
+                )
+
+                val dir = MathUtils.normalize(
+                    floatArrayOf(
+                        arm.localEnd.x - arm.localStart.x,
+                        arm.localEnd.y - arm.localStart.y,
+                        arm.localEnd.z - arm.localStart.z
+                    )
+                )
+
+                val (iVerts, iFaces) = cylinder.generateInsulatorMesh(mid, dir)
+
+                val insBase = exporter.vertexCount()
+
+                iVerts.forEach {
+                    exporter.addVertex(Vec3(it[0], it[1], it[2]))
+                }
+
+                iFaces.forEach {
+                    exporter.addFace(
+                        insBase + it[0] + 1,
+                        insBase + it[1] + 1,
+                        insBase + it[2] + 1
+                    )
+                }
+            }
+        }
+
+        // =========================================================
+        // 🔌 WIRES
+        // =========================================================
+        for (wire in sceneManager.wires) {
+
+            val pts = wire.points
+
+            for (i in 0 until pts.size - 1) {
+
+                exporter.addLine(
+                    pts[i],
+                    pts[i + 1]
+                )
+            }
+        }
+
+        return exporter.buildObj()
+    }
+
+    fun exportSceneGLB(): ByteArray {
+
+        val exporter = GlbExporter()
+
+        // =========================================================
+        // 🔵 POLES
+        // =========================================================
+        for (pole in sceneManager.poles) {
+
+            val (verts, faces) = cylinder.generateCylinderMeshWorld(
+                pole.base.position,
+                pole.top.position
+            )
+
+            exporter.addMesh(verts, faces)
+
+            // =====================================================
+            // 🟫 CROSS ARMS
+            // =====================================================
+            pole.crossArms.forEach { arm ->
+
+                val (aVerts, aFaces) = cylinder.generateCylinderMeshWorld(
+                    arm.localStart,
+                    arm.localEnd
+                )
+
+                exporter.addMesh(aVerts, aFaces)
+
+                // =====================================================
+                // 🔩 INSULATOR (FIXED - ADD THIS)
+                // =====================================================
+                val mid = Vec3(
+                    (arm.localStart.x + arm.localEnd.x) * 0.5f,
+                    (arm.localStart.y + arm.localEnd.y) * 0.5f,
+                    (arm.localStart.z + arm.localEnd.z) * 0.5f
+                )
+
+                val dir = MathUtils.normalize(
+                    floatArrayOf(
+                        arm.localEnd.x - arm.localStart.x,
+                        arm.localEnd.y - arm.localStart.y,
+                        arm.localEnd.z - arm.localStart.z
+                    )
+                )
+
+                val (iVerts, iFaces) = cylinder.generateInsulatorMesh(mid, dir)
+
+                exporter.addMesh(iVerts, iFaces)
+            }
+        }
+
+        // =========================================================
+        // 🔌 WIRES (FIXED)
+        // =========================================================
+        for (wire in sceneManager.wires) {
+
+            val pts = wire.points
+
+            for (i in 0 until pts.size - 1) {
+
+                val (wVerts, wFaces) = cylinder.generateCylinderMeshWorld(
+                    pts[i],
+                    pts[i + 1]
+                )
+
+                exporter.addMesh(wVerts, wFaces)
+            }
+        }
+
+        return exporter.buildGLB()
     }
 
     // Handle only one tap per frame, as taps are usually low frequency compared to frame rate.
@@ -755,15 +900,15 @@ public data class WrappedAnchor(
     var isSelected: Boolean = false
 )
 
-data class AnchorPoint(
-    var anchor: Anchor,
-    var position: FloatArray
+data class Vec3(
+    var x: Float,
+    var y: Float,
+    var z: Float
 )
 
-data class CrossArm(
-    val start: FloatArray,
-    val end: FloatArray,
-    val id: String = java.util.UUID.randomUUID().toString()
+data class AnchorPoint(
+    var anchor: Anchor,
+    var position: Vec3
 )
 
 data class Pole(
@@ -772,10 +917,33 @@ data class Pole(
     val crossArms: MutableList<CrossArm> = mutableListOf()
 )
 
+data class CrossArm(
+    val localStart: Vec3,
+    val localEnd: Vec3,
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val config: PhaseConfig = PhaseConfig.HORIZONTAL
+) {
+fun mid(): Vec3 {
+    return Vec3(
+        (localStart.x + localEnd.x) * 0.5f,
+        (localStart.y + localEnd.y) * 0.5f,
+        (localStart.z + localEnd.z) * 0.5f
+    )
+}
+}
+//
+//data class Wire(
+//    val startArm: CrossArm,
+//    val endArm: CrossArm,
+//    var points: List<Vec3> = emptyList(),
+//    var tension: Float = 1.0f
+//)
+
 data class Wire(
-    val startArm: CrossArm,
-    val endArm: CrossArm,
-    val points: FloatArray
+    val startInsulator: Vec3,
+    val endInsulator: Vec3,
+    val points: List<Vec3>,
+    var tension: Float = 1.0f
 )
 
 enum class InteractionMode {
@@ -784,3 +952,14 @@ enum class InteractionMode {
     SELECTED,
     DRAGGING
 }
+
+enum class PhaseConfig {
+    HORIZONTAL,
+    VERTICAL,
+    DELTA
+}
+
+data class Insulator(
+    val position: Vec3,
+    val wireDir: Vec3
+)

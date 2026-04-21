@@ -3,15 +3,18 @@ package com.wsp.plugins.spatialvision.helloar
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.Button
 import android.widget.Switch
 import androidx.appcompat.widget.SwitchCompat
 import android.widget.TextView
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import com.google.ar.core.Config
 import com.google.ar.core.Config.InstantPlacementMode
@@ -42,6 +45,7 @@ class HelloArActivity : AppCompatActivity() {
     lateinit var arCoreSessionHelper: ARCoreSessionLifecycleHelper
     lateinit var view: HelloArView
     lateinit var renderer: HelloArRenderer
+    private lateinit var sceneManager: SceneManager;
 
     val instantPlacementSettings = InstantPlacementSettings()
     val depthSettings = DepthSettings()
@@ -52,6 +56,7 @@ class HelloArActivity : AppCompatActivity() {
     lateinit var depthConfidence: TextView
 
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -84,6 +89,10 @@ class HelloArActivity : AppCompatActivity() {
         lifecycle.addObserver(view)
         setContentView(view.root)
 
+        view.onExportRequested = {
+            triggerExport()
+        }
+
         // Set up the Hello AR renderer.
         renderer = HelloArRenderer(this)
         lifecycle.addObserver(renderer)
@@ -99,7 +108,7 @@ class HelloArActivity : AppCompatActivity() {
         distanceObjToObj = findViewById(R.id.distance_between_objects)
 //        distanceCamToObj1 = findViewById(R.id.distance_cam_obj1)
 //        distanceCamToObj2 = findViewById(R.id.distance_cam_obj2)
-        depthConfidence = findViewById(R.id.depth_confidence)
+//        depthConfidence = findViewById(R.id.depth_confidence)
 
         closeButton.setOnClickListener {
             sendResultAndFinish()
@@ -138,49 +147,63 @@ class HelloArActivity : AppCompatActivity() {
 //            distanceCamToObj1.text = "Camera → Obj1: ${format(camToObj1)} m"
 //            distanceCamToObj2.text = "Camera → Obj2: ${format(camToObj2)} m"
 //            depthConfidence.text = "Confidence: $confidence"
-            if (confidence != null && confidence > 0) {
-                depthConfidence.visibility = View.VISIBLE
-                depthConfidence.text = "Confidence: $confidence"
-            } else {
-                depthConfidence.visibility = View.GONE
-            }
+//            if (confidence != null && confidence > 0) {
+//                depthConfidence.visibility = View.VISIBLE
+//                depthConfidence.text = "Confidence: $confidence"
+//            } else {
+//                depthConfidence.visibility = View.GONE
+//            }
 
         }
     }
 
-//    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-//        menuInflater.inflate(R.menu.settings_menu, menu)
-//
-//        val item = menu.findItem(R.id.action_toggle)
-//        val actionView = item.actionView ?: return true
-//
-//        val switch = actionView.findViewById<SwitchCompat>(R.id.toggle_switch)
-//        val label = actionView.findViewById<TextView>(R.id.switch_label)
-//
-//        // 🔥 IMPORTANT: ensure view is ready
-//        actionView.post {
-//
-//            // initial state
-//            switch.isChecked = view.showCardLabel
-//            label.text = if (view.showCardLabel) "Card" else "Simple"
-//
-//            // remove old listener
-//            switch.setOnCheckedChangeListener(null)
-//
-//            // attach listener
-//            switch.setOnCheckedChangeListener { _, isChecked ->
-//                view.showCardLabel = isChecked
-//                label.text = if (isChecked) "Card" else "Simple"
-//
-//                Log.d("TOGGLE", "showCardLabel = ${view.showCardLabel}")
-//            }
-//        }
-//
-//        return true
-//    }
-
     private fun format(value: Float?): String {
         return if (value == null) "--" else String.format("%.2f", value)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun triggerExport() {
+
+        Thread {
+
+            try {
+//                val obj = renderer.exportScene()
+                val glb = renderer.exportSceneGLB()
+
+                val uri = view.saveObjToDownloadsModern(this, glb)
+
+                runOnUiThread {
+                    Toast.makeText(this, "Saved to Downloads", Toast.LENGTH_SHORT).show()
+                }
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+        }.start()
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+
+        when (item.itemId) {
+
+            R.id.config_horizontal -> {
+                sceneManager.currentConfig = PhaseConfig.HORIZONTAL
+                item.isChecked = true
+            }
+
+            R.id.config_vertical -> {
+                sceneManager.currentConfig = PhaseConfig.VERTICAL
+                item.isChecked = true
+            }
+
+            R.id.config_delta -> {
+                sceneManager.currentConfig = PhaseConfig.DELTA
+                item.isChecked = true
+            }
+        }
+
+        return super.onOptionsItemSelected(item)
     }
 
     override fun onRequestPermissionsResult(

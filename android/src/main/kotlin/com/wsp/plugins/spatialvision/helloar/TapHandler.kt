@@ -22,7 +22,7 @@ class TapHandler(
             ?: return
 
         val pose = anchor.pose
-        val world = floatArrayOf(pose.tx(), pose.ty(), pose.tz())
+        val world = Vec3(pose.tx(), pose.ty(), pose.tz())
 
         sceneManager.handleTap(TapResult(anchor, world))
     }
@@ -140,5 +140,5 @@ class TapHandler(
 
 data class TapResult(
     val anchor: Anchor,
-    val world: FloatArray
+    val world: Vec3
 )

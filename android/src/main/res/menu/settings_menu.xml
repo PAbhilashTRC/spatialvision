@@ -7,4 +7,25 @@
   <item android:id="@+id/instant_placement_settings"
       android:title="Instant Placement"/>
   <item android:id="@+id/card" android:title="Show Card Label" android:checkable="true" />
+  <item android:id="@+id/download" android:title="Download" />
+
+  <group android:checkableBehavior="single">
+
+    <item
+        android:id="@+id/config_horizontal"
+        android:title="Horizontal 3-Phase"
+        android:checked="true"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/config_vertical"
+        android:title="Vertical Stack"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/config_delta"
+        android:title="Delta (Triangle)"
+        app:showAsAction="never"/>
+
+  </group>
 </menu>

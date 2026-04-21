@@ -16,6 +16,8 @@ class LabelRender {
     companion object {
         private const val SIZE = 0.2f  // ✔ AR world-space label size
 
+        private val labelViewProjectionMatrix = FloatArray(16)
+
         // 2 triangles (stable, no strip issues)
         private val QUAD_COORDS: FloatBuffer =
             ByteBuffer.allocateDirect(6 * 2 * 4)
@@ -127,5 +129,24 @@ class LabelRender {
             .setFloat("u_Scale", 1.8f)
 
         render.draw(mesh, shader)
+    }
+
+    fun calculateDistance(start: Vec3,
+                          end: Vec3): ARLabelData{
+        // --- Draw line between first 2 anchors ---
+        val distObjToObj = MathUtils.distance(start, end)
+        val labelText = String.format("%.2f m", distObjToObj)
+
+        // ---------------------------
+        // DRAW LABEL (SAFE PATH)
+        // ---------------------------
+        val obj1Formatted = floatArrayOf(start.x,start.y, start.z).joinToString(", ") { "%.2f".format(it) }
+        val obj2Formatted = floatArrayOf(end.x,end.y, end.z).joinToString(", ") { "%.2f".format(it) }
+        return ARLabelData(title ="Measuring Tool",
+            measurement = labelText,
+            sourceA = obj1Formatted,
+            sourceB = obj2Formatted,
+            confidence = "unknow"
+        )
     }
 }

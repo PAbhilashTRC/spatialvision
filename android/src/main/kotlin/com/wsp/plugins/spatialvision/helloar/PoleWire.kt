@@ -1,87 +1,12 @@
 package com.wsp.plugins.spatialvision.helloar
 
-import com.wsp.plugins.spatialvision.common.samplerender.Mesh
-import com.wsp.plugins.spatialvision.common.samplerender.SampleRender
-import com.wsp.plugins.spatialvision.common.samplerender.Shader
-import com.wsp.plugins.spatialvision.common.samplerender.VertexBuffer
-import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-
 class PoleWire {
 
-    private lateinit var wireShader: Shader
-    private lateinit var wireVertexBuffer: VertexBuffer
-    private lateinit var wireMesh: Mesh
-
-    fun onSurfaceCreated(render: SampleRender) {
-        try {
-            wireShader = Shader.createFromAssets(
-                render,
-                "shaders/wire.vert",   // ✅ use wire shader
-                "shaders/wire.frag",
-                null
-            )
-
-            // dummy init (will update later)
-            val dummy = FloatArray(3)
-
-            val buffer = ByteBuffer.allocateDirect(dummy.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-            buffer.put(dummy).position(0)
-
-            wireVertexBuffer = VertexBuffer(render, 3, buffer)
-
-            wireMesh = Mesh(
-                render,
-                Mesh.PrimitiveMode.LINE_STRIP,
-                null,
-                arrayOf(wireVertexBuffer)
-            )
-
-        } catch (e: IOException) {
-            e.printStackTrace()
-        }
-    }
-
-    fun drawWire(
-        render: SampleRender,
-        points: FloatArray,
-        viewMatrix: FloatArray,
-        projectionMatrix: FloatArray
-    ) {
-
-        if (points.isEmpty()) return
-
-        // ✅ UPDATE BUFFER EVERY DRAW (important)
-        val buffer = ByteBuffer.allocateDirect(points.size * 4)
-            .order(ByteOrder.nativeOrder())
-            .asFloatBuffer()
-
-        buffer.put(points).position(0)
-
-        wireVertexBuffer.set(buffer)
-
-        wireShader.setMat4("u_View", viewMatrix)
-        wireShader.setMat4("u_Proj", projectionMatrix)
-        wireShader.setVec4("u_Color", floatArrayOf(0f, 0f, 0f, 1f))
-
-        render.draw(wireMesh, wireShader)
-    }
-
-    fun computeSag(length: Float): Float {
-        return length * 0.05f  // 5% sag (realistic default)
-    }
-
-    fun generateWire(
+    fun computeSag(
         start: FloatArray,
         end: FloatArray,
-        sag: Float,
-        segments: Int = 20
-    ): FloatArray {
-
-        val points = FloatArray((segments + 1) * 3)
+        tension: Float = 1.0f
+    ): Float {
 
         val dx = end[0] - start[0]
         val dy = end[1] - start[1]
@@ -89,31 +14,97 @@ class PoleWire {
 
         val length = kotlin.math.sqrt(dx*dx + dy*dy + dz*dz)
 
+        // vertical difference matters a LOT in real wires
+        val verticalDrop = kotlin.math.abs(dy)
+
+        // sag increases with span, decreases with tension
+        val baseSag = length * 0.04f
+
+        // 🔥 slope should REDUCE sag stability slightly (not amplify it wildly)
+        val slopeFactor = 1f + (verticalDrop / (length + 0.0001f)) * 0.3f
+
+        // 🔥 strong tension control (this is what you were missing)
+        val tensionFactor = kotlin.math.max(0.2f, tension)
+
+        // 🔥 final sag
+        val sag = (baseSag * slopeFactor) / tensionFactor
+
+        // 🔥 HARD CAP (VERY IMPORTANT)
+        return kotlin.math.min(sag, length * 0.08f)
+    }
+
+    fun generateWire(
+        start: FloatArray,
+        end: FloatArray,
+        sag: Float,
+        segments: Int = 20
+    ): List<FloatArray> {
+
+        val points = mutableListOf<FloatArray>()
+
+        val dir = floatArrayOf(
+            end[0] - start[0],
+            end[1] - start[1],
+            end[2] - start[2]
+        )
+
+        val length = kotlin.math.sqrt(dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2])
+
+        // normalize direction
+        for (i in 0..2) dir[i] /= length
+
+        // gravity direction (world Y)
+        val gravity = floatArrayOf(0f, -1f, 0f)
+//        val gravity = floatArrayOf(
+//            -cameraPose.yAxis[0],
+//            -cameraPose.yAxis[1],
+//            -cameraPose.yAxis[2]
+//        )
+
+        // perpendicular direction for sag plane
+        val side = MathUtils.cross(dir, gravity)
+        val sideLen = MathUtils.length(side)
+        if (sideLen < 0.0001f) {
+            // fallback if parallel
+            side[0] = 1f; side[1] = 0f; side[2] = 0f
+        } else {
+            for (i in 0..2) side[i] /= sideLen
+        }
+
         for (i in 0..segments) {
+
             val t = i / segments.toFloat()
 
-            // Linear interpolation
-            val x = start[0] + dx * t
-            val y = start[1] + dy * t
-            val z = start[2] + dz * t
+            // linear interpolation
+            val x = start[0] + dir[0] * length * t
+            val y = start[1] + dir[1] * length * t
+            val z = start[2] + dir[2] * length * t
 
-            // Sag (parabolic)
-            val sagOffset = sag * (t - 0.5f) * (t - 0.5f) * -4f
+            // parabolic sag (physically stable)
+            val sagFactor = 4f * t * (1f - t)  // smoother than sin()
 
-            val index = i * 3
-            points[index] = x
-            points[index + 1] = y + sagOffset
-            points[index + 2] = z
+            val sagOffset = sag * sagFactor
+
+            val final = floatArrayOf(
+                x + side[0] * sagOffset,
+                y - sagOffset,
+                z + side[2] * sagOffset
+            )
+
+            points.add(final)
         }
 
         return points
     }
 
-    fun distance(a: FloatArray, b: FloatArray): Float{
-        val dx = a[0]-b[0];
-        val dy = a[1]-b[1];
-        val dz = a[2]-b[2];
-        return  kotlin.math.sqrt(dx*dx+dy*dy+dz*dz);
-    }
+//    fun calculateWireLength(points: List<FloatArray>): Float {
+//        var total = 0f
+//
+//        for (i in 0 until points.size - 1) {
+//            total += MathUtils.distance(points[i], points[i + 1])
+//        }
+//
+//        return total
+//    }
 
 }

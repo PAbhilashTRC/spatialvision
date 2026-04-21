@@ -15,8 +15,15 @@
  */
 package com.wsp.plugins.spatialvision.helloar
 
+import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
 import android.content.res.Resources
+import android.net.Uri
 import android.opengl.GLSurfaceView
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.view.View
 import android.widget.ImageButton
 import android.widget.PopupMenu
@@ -29,6 +36,9 @@ import com.wsp.plugins.spatialvision.common.helpers.SnackbarHelper
 import com.wsp.plugins.spatialvision.common.helpers.TapHelper
 import android.widget.SeekBar
 import android.widget.TextView
+import androidx.annotation.RequiresApi
+import androidx.core.content.FileProvider
+import java.io.File
 
 /** Contains UI elements for Hello AR. */
 class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
@@ -36,9 +46,11 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   val surfaceView = root.findViewById<GLSurfaceView>(R.id.surfaceview)
 
   val slider = root.findViewById<SeekBar>(R.id.radius_slider)
-  val slider_value = root.findViewById<TextView>(R.id.slider_value)
+//  val slider_value = root.findViewById<TextView>(R.id.slider_value)
 
   val pipeRadius = root.findViewById<TextView>( R.id.radius)
+
+  var onExportRequested: (() -> Unit)? = null
   var showCardLabel = false
   val settingsButton =
     root.findViewById<ImageButton>(R.id.settings_button).apply {
@@ -55,6 +67,10 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
               R.id.card -> {
                 showCardLabel = !showCardLabel
                 item.isChecked = showCardLabel
+                true
+              }
+              R.id.download -> {
+                onExportRequested?.invoke()
                 true
               }
               else -> null
@@ -80,6 +96,54 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   override fun onPause(owner: LifecycleOwner) {
     surfaceView.onPause()
   }
+
+  fun saveObj(context: Context, content: String): File {
+    val file = File(context.getExternalFilesDir(null), "scene.obj")
+    file.writeText(content)
+    return file
+  }
+
+  @RequiresApi(Build.VERSION_CODES.Q)
+  fun saveObjToDownloadsModern(context: Context, content: ByteArray): Uri? {
+
+    val resolver = context.contentResolver
+
+    val values = ContentValues().apply {
+//      put(MediaStore.Downloads.DISPLAY_NAME, "scene.obj")
+//      put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+      put(MediaStore.Downloads.DISPLAY_NAME, "scene.glb")
+      put(MediaStore.Downloads.MIME_TYPE, "model/gltf-binary")
+      put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+    }
+
+    val uri = resolver.insert(
+      MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+      values
+    ) ?: return null
+
+    resolver.openOutputStream(uri)?.use { output ->
+      output.write(content)
+    }
+
+    return uri
+  }
+
+  fun shareFile(context: Context, file: File) {
+    val uri = FileProvider.getUriForFile(
+      context,
+      "${context.packageName}.fileprovider",
+      file
+    )
+
+    val intent = Intent(Intent.ACTION_SEND).apply {
+      type = "text/plain"
+      putExtra(Intent.EXTRA_STREAM, uri)
+      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    context.startActivity(Intent.createChooser(intent, "Download OBJ"))
+  }
+
 
   /**
    * Shows a pop-up dialog on the first tap in HelloARRenderer, determining whether the user wants

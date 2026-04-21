@@ -2,11 +2,11 @@ package com.wsp.plugins.spatialvision.helloar
 
 
 object MathUtils {
-    fun getMidPoint(p1: FloatArray, p2: FloatArray): FloatArray {
+    fun getMidPoint(p1: Vec3, p2: Vec3): FloatArray {
         return floatArrayOf(
-            (p1[0] + p2[0]) / 2f,
-            (p1[1] + p2[1]) / 2f,
-            (p1[2] + p2[2]) / 2f
+            (p1.x + p2.x) / 2f,
+            (p1.y + p2.y) / 2f,
+            (p1.z + p2.z) / 2f
         )
     }
 
@@ -35,11 +35,45 @@ object MathUtils {
 
 
 
-    fun distance(p1: FloatArray, p2: FloatArray): Float {
-        val dx = p1[0] - p2[0]
-        val dy = p1[1] - p2[1]
-        val dz = p1[2] - p2[2]
+    fun distance(p1: Vec3, p2: Vec3): Float {
+        val dx = p1.x - p2.x
+        val dy = p1.y - p2.y
+        val dz = p1.z - p2.z
         return Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble()).toFloat()
     }
+
+    fun normalize(v: FloatArray): FloatArray {
+        val len = kotlin.math.sqrt(
+            v[0] * v[0] +
+                    v[1] * v[1] +
+                    v[2] * v[2]
+        )
+
+        if (len == 0f) return floatArrayOf(0f, 0f, 0f)
+
+        return floatArrayOf(
+            v[0] / len,
+            v[1] / len,
+            v[2] / len
+        )
+    }
+
+    fun cross(a: FloatArray, b: FloatArray): FloatArray {
+        return floatArrayOf(
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0]
+        )
+    }
+
+    fun length(v: FloatArray): Float {
+        return kotlin.math.sqrt(
+            v[0] * v[0] +
+                    v[1] * v[1] +
+                    v[2] * v[2]
+        )
+    }
+
+    fun dot(a: FloatArray, b: FloatArray): Float = a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
 
 }
