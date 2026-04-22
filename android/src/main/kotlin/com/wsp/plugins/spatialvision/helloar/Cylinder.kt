@@ -23,8 +23,8 @@ class Cylinder {
         try{
             cylinderShader = Shader.createFromAssets(
                 render,
-                "shaders/cylinder.vert",
-                "shaders/cylinder.frag",
+                "shaders/pole.vert",
+                "shaders/pole.frag",
                 null
             ); // base radius
 
@@ -73,9 +73,9 @@ class Cylinder {
              projectionMatrix: FloatArray,
             uColor: FloatArray = floatArrayOf(0.0f, 0.45f, 0.15f, 1.0f),
              asset: String){
-        if (asset == "wires"){
-            radius = 0.005f;
-        }
+//        if (asset == "wires"){
+//            radius = 0.005f;
+//        }
         cylinderShader.setVec3("u_Start", floatArrayOf(start.x, start.y, start.z))
         cylinderShader.setVec3("u_End", floatArrayOf(end.x, end.y, end.z))
         cylinderShader.setMat4("u_View", viewMatrix)

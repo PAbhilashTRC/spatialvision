@@ -252,10 +252,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 it.onSurfaceCreated(render)
             }
 
-//            poleWire = PoleWire().also{
-//                it.onSurfaceCreated(render = render)
-//            }
-
             sceneManager = SceneManager(cylinder)
             tapHandler = TapHandler(sceneManager)
 
@@ -426,39 +422,25 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 // 🔥 Insulators
                 // ========================================================
 
-                val attachmentPoints = sceneManager.getAttachmentPoints(arm)
+                // Get pole direction for this pole
+                val poleDir = sceneManager.getPoleDirection(pole)
 
-                attachmentPoints.forEach { p ->
-                    // 🔥 direction should be from insulator → opposite pole
-                    val wireDir = MathUtils.normalize(
-                        floatArrayOf(
-                            arm.localEnd.x - arm.localStart.x,
-                            arm.localEnd.y - arm.localStart.y,
-                            arm.localEnd.z - arm.localStart.z
-                        )
-                    )
+                val insulatorBasePoints = sceneManager.getInsulatorBasePoints(arm)
 
-                    val gravityBias = floatArrayOf(0f, -0.2f, 0f)
-
-                    val tiltDir = MathUtils.normalize(
-                        floatArrayOf(
-                            wireDir[0] + gravityBias[0],
-                            wireDir[1] + gravityBias[1],
-                            wireDir[2] + gravityBias[2]
-                        )
-                    )
+                insulatorBasePoints.forEachIndexed { index, basePoint ->
+                    // Calculate proper insulator direction based on configuration
+                    val insulatorDir = sceneManager.getInsulatorDirection(arm, poleDir, basePoint, index)
 
                     cylinder.drawInsulator(
                         render,
-                        p,          // ✅ USE ACTUAL POINT
-                        tiltDir,
+                        basePoint,
+                        insulatorDir,
                         viewMatrix,
                         projectionMatrix,
                         floatArrayOf(0.92f, 0.93f, 0.95f, 1.0f),
                         asset = "Insulators"
                     )
                 }
-
             }
         }
 
@@ -469,7 +451,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
             for (i in 0 until wire.points.size - 1) {
                 val p1 = wire.points[i]
                 val p2 = wire.points[i + 1]
-                cylinder.setRadius(0.005f)
+//                cylinder.setRadius(0.005f)
                 cylinder.draw(
                     render,
                     p1,
