@@ -71,7 +71,11 @@ class Cylinder {
              end: Vec3,
              viewMatrix: FloatArray,
              projectionMatrix: FloatArray,
-            uColor: FloatArray = floatArrayOf(0.0f, 0.45f, 0.15f, 1.0f)){
+            uColor: FloatArray = floatArrayOf(0.0f, 0.45f, 0.15f, 1.0f),
+             asset: String){
+        if (asset == "wires"){
+            radius = 0.005f;
+        }
         cylinderShader.setVec3("u_Start", floatArrayOf(start.x, start.y, start.z))
         cylinderShader.setVec3("u_End", floatArrayOf(end.x, end.y, end.z))
         cylinderShader.setMat4("u_View", viewMatrix)
@@ -81,11 +85,6 @@ class Cylinder {
         cylinderShader.setFloat("u_Radius", radius)
 
         cylinderShader.setVec3("uAmbientColor", floatArrayOf(0.4f, 0.4f, 0.4f))
-
-//        cylinderShader.setVec4("uDiffuseColor", floatArrayOf(1f, 1f, 1f, 1f))
-//        cylinderShader.setVec4("uSpecularColor", floatArrayOf(1f, 1f, 1f, 1f))
-//
-//        cylinderShader.setFloat("uMaterialShininess", 16f)
 
         // attenuation (same as sphere)
         cylinderShader.setVec3("uAttenuation", floatArrayOf(1f, 0.14f, 0.07f))
@@ -164,7 +163,9 @@ class Cylinder {
         attachPoint: Vec3,
         dir: FloatArray, // pole direction
         view: FloatArray,
-        proj: FloatArray
+        proj: FloatArray,
+        uColor: FloatArray,
+        asset: String
     ) {
         val boltHeight = 0.05f
         val insulatorHeight = 0.08f
@@ -178,7 +179,7 @@ class Cylinder {
 
         setRadius(0.005f)
         draw(render, attachPoint, boltEnd, view, proj,
-            floatArrayOf(0.2f, 0.2f, 0.2f, 1f)) // metallic
+            floatArrayOf(0.2f, 0.2f, 0.2f, 1f), asset) // metallic
 
         // ⚪ Insulator (on top of bolt)
         val insStart = boltEnd
@@ -190,34 +191,47 @@ class Cylinder {
 
         setRadius(0.015f)
         draw(render, insStart, insEnd, view, proj,
-            floatArrayOf(0.8f, 0.85f, 0.9f, 1f)) // ceramic look
+            uColor, asset) // ceramic look
     }
 
     fun generateCylinderMeshWorld(
         start: Vec3,
         end: Vec3,
-        segments: Int = 24
-    ): Pair<List<FloatArray>, List<IntArray>> {
+        radius: Float = 0.05f,
+        segments: Int = 24,
+        cap: Boolean = true
+    ): Pair<List<Vertex>, List<Int>> {
 
-        val vertices = mutableListOf<FloatArray>()
-        val faces = mutableListOf<IntArray>()
+        val vertices = mutableListOf<Vertex>()
+        val indices = mutableListOf<Int>()
 
-        // Direction
+        // -----------------------------
+        // Direction & basis
+        // -----------------------------
         val dir = floatArrayOf(
             end.x - start.x,
             end.y - start.y,
             end.z - start.z
         )
-        val len = kotlin.math.sqrt(dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2])
+
+        val len = kotlin.math.sqrt(
+            dir[0]*dir[0] +
+                    dir[1]*dir[1] +
+                    dir[2]*dir[2]
+        )
+
         for (i in 0..2) dir[i] /= len
 
         val (right, forward) = computeBasis(dir)
 
-        val bottomRingStartIndex: Int
-        val topRingStartIndex: Int
+        // -----------------------------
+        // Ring generation (shared verts)
+        // -----------------------------
+        val bottomRing = mutableListOf<Int>()
+        val topRing = mutableListOf<Int>()
 
-        // Generate vertices (bottom + top rings)
         for (i in 0 until segments) {
+
             val angle = (2.0 * Math.PI * i / segments).toFloat()
 
             val cosA = kotlin.math.cos(angle)
@@ -229,127 +243,198 @@ class Cylinder {
                 cosA * right[2] + sinA * forward[2]
             )
 
-            // bottom (height = 0)
-            val bottom = floatArrayOf(
+            // -------------------------
+            // NORMAL (radial)
+            // -------------------------
+            val normal = MathUtils.normalize(circle)
+
+            // -------------------------
+            // UV (wrap around cylinder)
+            // -------------------------
+            val u = i.toFloat() / segments
+            val vBottom = 0f
+            val vTop = 1f
+
+            val bottomPos = floatArrayOf(
                 start.x + circle[0] * radius,
                 start.y + circle[1] * radius,
                 start.z + circle[2] * radius
             )
 
-            // top (height = 1)
-            val top = floatArrayOf(
+            val topPos = floatArrayOf(
                 end.x + circle[0] * radius,
                 end.y + circle[1] * radius,
                 end.z + circle[2] * radius
             )
 
-            vertices.add(bottom)
-            vertices.add(top)
-        }
-        bottomRingStartIndex = 0
-        topRingStartIndex = 1
+            val bottomIndex = vertices.size
+            vertices.add(
+                Vertex(bottomPos, normal, floatArrayOf(u, vBottom))
+            )
+            bottomRing.add(bottomIndex)
 
-        // Generate faces (triangle strip → triangles)
+            val topIndex = vertices.size
+            vertices.add(
+                Vertex(topPos, normal, floatArrayOf(u, vTop))
+            )
+            topRing.add(topIndex)
+        }
+
+        // -----------------------------
+        // Side faces (smooth shading)
+        // -----------------------------
         for (i in 0 until segments) {
+
             val next = (i + 1) % segments
 
-            val b1 = i * 2
-            val t1 = b1 + 1
-            val b2 = next * 2
-            val t2 = b2 + 1
+            val b1 = bottomRing[i]
+            val b2 = bottomRing[next]
+            val t1 = topRing[i]
+            val t2 = topRing[next]
 
-            // Triangle 1
-            faces.add(intArrayOf(b1, t1, b2))
-
-            // Triangle 2
-            faces.add(intArrayOf(t1, t2, b2))
+            indices.addAll(listOf(b1, t1, b2))
+            indices.addAll(listOf(t1, t2, b2))
         }
 
-        // 🟡 Add center vertices for caps
-        val bottomCenterIndex = vertices.size
-        vertices.add(floatArrayOf(start.x, start.y, start.z))
+        // -----------------------------
+        // Caps (flat shading normals)
+        // -----------------------------
+        if (cap) {
 
-        val topCenterIndex = vertices.size
-        vertices.add(floatArrayOf(end.x, end.y, end.z))
+            val bottomCenterIndex = vertices.size
+            vertices.add(
+                Vertex(
+                    floatArrayOf(start.x, start.y, start.z),
+                    floatArrayOf(-dir[0], -dir[1], -dir[2]),
+                    floatArrayOf(0.5f, 0.5f)
+                )
+            )
 
-        // 🔴 Bottom cap (facing downward)
-        for (i in 0 until segments) {
-            val next = (i + 1) % segments
+            val topCenterIndex = vertices.size
+            vertices.add(
+                Vertex(
+                    floatArrayOf(end.x, end.y, end.z),
+                    dir,
+                    floatArrayOf(0.5f, 0.5f)
+                )
+            )
 
-            val v1 = bottomCenterIndex
-            val v2 = next * 2
-            val v3 = i * 2
+            // bottom cap
+            for (i in 0 until segments) {
+                val next = (i + 1) % segments
+                indices.addAll(
+                    listOf(bottomCenterIndex, bottomRing[next], bottomRing[i])
+                )
+            }
 
-            faces.add(intArrayOf(v1, v2, v3))
+            // top cap
+            for (i in 0 until segments) {
+                val next = (i + 1) % segments
+                indices.addAll(
+                    listOf(topCenterIndex, topRing[i], topRing[next])
+                )
+            }
         }
 
-        // 🔵 Top cap (facing upward)
-        for (i in 0 until segments) {
-            val next = (i + 1) % segments
-
-            val v1 = topCenterIndex
-            val v2 = i * 2 + 1
-            val v3 = next * 2 + 1
-
-            faces.add(intArrayOf(v1, v2, v3))
-        }
-
-        return Pair(vertices, faces)
+        return Pair(vertices, indices)
     }
 
     fun generateInsulatorMesh(
         base: Vec3,
         dir: FloatArray
-    ): Pair<List<FloatArray>, List<IntArray>> {
+    ): Pair<List<Vertex>, List<Int>> {
 
-        val vertices = mutableListOf<FloatArray>()
-        val faces = mutableListOf<IntArray>()
+        val vertices = mutableListOf<Vertex>()
+        val faces = mutableListOf<Int>()
 
-        fun addCylinder(
-            start: Vec3,
-            end: Vec3,
-            radius: Float
-        ): Pair<List<FloatArray>, List<IntArray>> {
-            return generateCylinderMeshWorld(start, end, 12)
-        }
+        var vertexOffset = 0
 
         val boltHeight = 0.05f
         val insHeight = 0.08f
 
-        // 🔩 Bolt
+        // ---------------- BOLT ----------------
         val boltEnd = Vec3(
             base.x + dir[0] * boltHeight,
             base.y + dir[1] * boltHeight,
             base.z + dir[2] * boltHeight
         )
 
-        val (bVerts, bFaces) = generateCylinderMeshWorld(base, boltEnd, 12)
+        val (bVerts, bFaces) = generateCylinderMeshWorld(start = base, end = boltEnd, radius = 0.012f, segments = 12)
 
+        val boltOffset = vertexOffset
         vertices.addAll(bVerts)
-        faces.addAll(bFaces)
 
-        val offset = vertices.size
+        bFaces.forEach {
+            faces.add(it + boltOffset)
+        }
+//        faces.addAll(bFaces)
 
-        // ⚪ Insulator
+        vertexOffset += bVerts.size
+
+        // ---------------- INSULATOR ----------------
         val insEnd = Vec3(
             boltEnd.x + dir[0] * insHeight,
             boltEnd.y + dir[1] * insHeight,
             boltEnd.z + dir[2] * insHeight
         )
 
-        val (iVerts, iFaces) = generateCylinderMeshWorld(boltEnd, insEnd, 16)
+        val (iVerts, iFaces) = generateCylinderMeshWorld(start = boltEnd, end = insEnd,radius = 0.012f, segments = 16)
 
+        val insOffset = vertexOffset
         vertices.addAll(iVerts)
 
-        for (f in iFaces) {
-            faces.add(intArrayOf(
-                f[0] + offset,
-                f[1] + offset,
-                f[2] + offset
-            ))
+        iFaces.forEach {
+            faces.add(it + insOffset)
         }
+
+//        faces.addAll(iFaces)
 
         return Pair(vertices, faces)
     }
 
+    fun generateWireSplineMesh(
+        points: List<Vec3>,
+        radius: Float = 0.01f,
+        segments: Int = 10,
+        resolution: Int = 8
+    ): Pair<List<Vertex>, List<Int>> {
+
+        val vertices = mutableListOf<Vertex>()
+        val indices = mutableListOf<Int>()
+
+        var offset = 0
+
+        for (i in 0 until points.size - 1) {
+
+            val p0 = points[i]
+            val p1 = points[i + 1]
+
+            val (segVerts, segFaces) = generateCylinderMeshWorld(
+                p0,
+                p1,
+                radius = radius,
+                segments = segments,
+                cap = false
+            )
+
+            vertices.addAll(segVerts)
+
+            segFaces.forEach {
+                indices.add(it + offset)
+            }
+
+            indices.addAll(segFaces)
+
+            offset += segVerts.size
+        }
+
+        return Pair(vertices, indices)
+    }
+
 }
+
+data class Vertex(
+    val position: FloatArray,
+    val normal: FloatArray,
+    val uv: FloatArray
+)

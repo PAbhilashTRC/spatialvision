@@ -387,7 +387,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
             val pipeLabelPose = calculateMidValueForLabel(start, end)
             val pipeLabelData = labelRenderer.calculateDistance(start, end)
             // --- Draw pole (cylinder) ---
-            cylinder.draw(render, start, end, viewMatrix, projectionMatrix)
+            cylinder.draw(render, start, end, viewMatrix, projectionMatrix,
+                uColor = floatArrayOf(0.68f, 0.62f, 0.40f, 1.0f),
+                asset = "Pole")
 
             // --- Distance label (Pole height) ---
             labelRenderer.draw(
@@ -403,7 +405,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
             // 🔥 CROSS ARMS
             // ========================================================
             pole.crossArms.forEach { arm ->
-                cylinder.draw(render, arm.localStart, arm.localEnd, viewMatrix, projectionMatrix, uColor = floatArrayOf(0.4f, 0.3f, 0.2f, 1f))
+                cylinder.draw(render, arm.localStart, arm.localEnd,
+                    viewMatrix, projectionMatrix,
+                    uColor = floatArrayOf(0.45f, 0.35f, 0.25f, 1.0f), asset = "Crass_arms")
                 val labelData = labelRenderer.calculateDistance(
                     start = arm.localStart,
                     end = arm.localEnd,
@@ -449,7 +453,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
                         p,          // ✅ USE ACTUAL POINT
                         tiltDir,
                         viewMatrix,
-                        projectionMatrix
+                        projectionMatrix,
+                        floatArrayOf(0.92f, 0.93f, 0.95f, 1.0f),
+                        asset = "Insulators"
                     )
                 }
 
@@ -470,7 +476,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     p2,
                     viewMatrix,
                     projectionMatrix,
-                    floatArrayOf(0.55f, 0.56f, 0.58f, 1f)
+                    floatArrayOf(0.50f, 0.52f, 0.54f, 1.0f),
+                    asset = "wires"
                 )
             }
 
@@ -559,31 +566,127 @@ class HelloArRenderer(val activity: HelloArActivity) :
         return labelPose
     }
 
-    fun exportScene(): String {
+//    fun exportSceneGLB(): ByteArray {
+//        val material_pole = 0
+//        val material_arm = 1
+//        val material_insulator = 2
+//        val material_wire = 3
+//        val exporter = GlbExporter()
+//
+//        // =========================================================
+//        // 🔵 POLES
+//        // =========================================================
+//        for (pole in sceneManager.poles) {
+//
+//            val (verts, faces) = cylinder.generateCylinderMeshWorld(
+//                pole.base.position,
+//                pole.top.position
+//            )
+//
+//            exporter.addMesh(verts.map {it.position}, faces, verts.map {it.normal}, material_pole)
+//
+//            // =====================================================
+//            // 🟫 CROSS ARMS
+//            // =====================================================
+//            pole.crossArms.forEach { arm ->
+//
+//                val (aVerts, aFaces) = cylinder.generateCylinderMeshWorld(
+//                    arm.localStart,
+//                    arm.localEnd
+//                )
+//
+//                exporter.addMesh(aVerts.map {it.position},
+//                    aFaces,
+//                    aVerts.map {it.normal},
+//                    material_arm)
+//
+//                // =====================================================
+//                // 🔩 INSULATOR
+//                // =====================================================
+//                val mid = Vec3(
+//                    (arm.localStart.x + arm.localEnd.x) * 0.5f,
+//                    (arm.localStart.y + arm.localEnd.y) * 0.5f,
+//                    (arm.localStart.z + arm.localEnd.z) * 0.5f
+//                )
+//
+//                val dir = MathUtils.normalize(
+//                    floatArrayOf(
+//                        arm.localEnd.x - arm.localStart.x,
+//                        arm.localEnd.y - arm.localStart.y,
+//                        arm.localEnd.z - arm.localStart.z
+//                    )
+//                )
+//
+//                val (iVerts, iFaces) = cylinder.generateInsulatorMesh(mid, dir)
+//
+//                exporter.addMesh(iVerts.map {it.position},
+//                    iFaces,
+//                    iVerts.map {it.normal},
+//                    material_insulator)
+//            }
+//        }
+//
+//        // =========================================================
+//        // 🔌 WIRES (FIXED CONCEPT)
+//        // =========================================================
+//        for (wire in sceneManager.wires) {
+//
+//            val (wVerts, wFaces) = cylinder.generateWireSplineMesh(wire.points)
+//
+//            exporter.addMesh(wVerts.map {it.position},
+//                wFaces, wVerts.map { it.normal},
+//                material_wire)
+//        }
+//
+//        return exporter.buildGLB()
+//    }
 
-        val exporter = ObjExporter()
+    fun exportSceneGLB(): ByteArray {
+        val exporter = GlbExporter()
+
+        // Add materials first
+        val material_pole = exporter.addMaterial(
+            floatArrayOf(0.45f, 0.35f, 0.25f, 1.0f),  // Wood/Concrete color
+            0.2f,  // metallic
+            0.8f   // roughness
+        )
+
+        val material_arm = exporter.addMaterial(
+            floatArrayOf(0.55f, 0.45f, 0.35f, 1.0f),
+            0.3f,
+            0.7f
+        )
+
+        val material_insulator = exporter.addMaterial(
+            floatArrayOf(0.9f, 0.9f, 0.95f, 1.0f),  // Ceramic/Glass
+            0.1f,
+            0.4f
+        )
+
+        val material_wire = exporter.addMaterial(
+            floatArrayOf(0.3f, 0.3f, 0.3f, 1.0f),   // Dark gray
+            0.7f,
+            0.5f
+        )
 
         // =========================================================
         // 🔵 POLES
         // =========================================================
         for (pole in sceneManager.poles) {
+            val (verts, faces) = cylinder.generateCylinderMeshWorld(
+                pole.base.position,
+                pole.top.position,
+                radius = 0.05f,  // Specify radius
+                segments = 24,
+                cap = true
+            )
 
-            val start = pole.base.position
-            val end = pole.top.position
-
-            val (verts, faces) = cylinder.generateCylinderMeshWorld(start, end)
-
-            val baseIndex = exporter.vertexCount()
-
-            verts.forEach {
-                exporter.addVertex(Vec3(it[0], it[1], it[2]))
-            }
-
-            for (f in faces) {
-                exporter.addFace(
-                    baseIndex + f[0] + 1,
-                    baseIndex + f[1] + 1,
-                    baseIndex + f[2] + 1
+            if (verts.isNotEmpty() && faces.isNotEmpty()) {
+                exporter.addMesh(
+                    verts.map { it.position },
+                    faces,
+                    verts.map { it.normal },
+                    material_pole
                 )
             }
 
@@ -591,29 +694,26 @@ class HelloArRenderer(val activity: HelloArActivity) :
             // 🟫 CROSS ARMS
             // =====================================================
             pole.crossArms.forEach { arm ->
-
                 val (aVerts, aFaces) = cylinder.generateCylinderMeshWorld(
                     arm.localStart,
-                    arm.localEnd
+                    arm.localEnd,
+                    radius = 0.02f,
+                    segments = 12,
+                    cap = true
                 )
 
-                val armBase = exporter.vertexCount()
-                aVerts.forEach {
-                    exporter.addVertex(Vec3(it[0], it[1], it[2]))
-                }
-
-                aFaces.forEach {
-                    exporter.addFace(
-                        armBase + it[0] + 1,
-                        armBase + it[1] + 1,
-                        armBase + it[2] + 1
+                if (aVerts.isNotEmpty() && aFaces.isNotEmpty()) {
+                    exporter.addMesh(
+                        aVerts.map { it.position },
+                        aFaces,
+                        aVerts.map { it.normal },
+                        material_arm
                     )
                 }
 
                 // =====================================================
-                // 🔩 INSULATOR (FIXED)
+                // 🔩 INSULATOR
                 // =====================================================
-
                 val mid = Vec3(
                     (arm.localStart.x + arm.localEnd.x) * 0.5f,
                     (arm.localStart.y + arm.localEnd.y) * 0.5f,
@@ -630,17 +730,12 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
                 val (iVerts, iFaces) = cylinder.generateInsulatorMesh(mid, dir)
 
-                val insBase = exporter.vertexCount()
-
-                iVerts.forEach {
-                    exporter.addVertex(Vec3(it[0], it[1], it[2]))
-                }
-
-                iFaces.forEach {
-                    exporter.addFace(
-                        insBase + it[0] + 1,
-                        insBase + it[1] + 1,
-                        insBase + it[2] + 1
+                if (iVerts.isNotEmpty() && iFaces.isNotEmpty()) {
+                    exporter.addMesh(
+                        iVerts.map { it.position },
+                        iFaces,
+                        iVerts.map { it.normal },
+                        material_insulator
                     )
                 }
             }
@@ -650,87 +745,20 @@ class HelloArRenderer(val activity: HelloArActivity) :
         // 🔌 WIRES
         // =========================================================
         for (wire in sceneManager.wires) {
-
-            val pts = wire.points
-
-            for (i in 0 until pts.size - 1) {
-
-                exporter.addLine(
-                    pts[i],
-                    pts[i + 1]
-                )
-            }
-        }
-
-        return exporter.buildObj()
-    }
-
-    fun exportSceneGLB(): ByteArray {
-
-        val exporter = GlbExporter()
-
-        // =========================================================
-        // 🔵 POLES
-        // =========================================================
-        for (pole in sceneManager.poles) {
-
-            val (verts, faces) = cylinder.generateCylinderMeshWorld(
-                pole.base.position,
-                pole.top.position
+            val (wVerts, wFaces) = cylinder.generateWireSplineMesh(
+                wire.points,
+                radius = 0.008f,
+                segments = 8,
+                resolution = 8
             )
 
-            exporter.addMesh(verts, faces)
-
-            // =====================================================
-            // 🟫 CROSS ARMS
-            // =====================================================
-            pole.crossArms.forEach { arm ->
-
-                val (aVerts, aFaces) = cylinder.generateCylinderMeshWorld(
-                    arm.localStart,
-                    arm.localEnd
+            if (wVerts.isNotEmpty() && wFaces.isNotEmpty()) {
+                exporter.addMesh(
+                    wVerts.map { it.position },
+                    wFaces,
+                    wVerts.map { it.normal },
+                    material_wire
                 )
-
-                exporter.addMesh(aVerts, aFaces)
-
-                // =====================================================
-                // 🔩 INSULATOR (FIXED - ADD THIS)
-                // =====================================================
-                val mid = Vec3(
-                    (arm.localStart.x + arm.localEnd.x) * 0.5f,
-                    (arm.localStart.y + arm.localEnd.y) * 0.5f,
-                    (arm.localStart.z + arm.localEnd.z) * 0.5f
-                )
-
-                val dir = MathUtils.normalize(
-                    floatArrayOf(
-                        arm.localEnd.x - arm.localStart.x,
-                        arm.localEnd.y - arm.localStart.y,
-                        arm.localEnd.z - arm.localStart.z
-                    )
-                )
-
-                val (iVerts, iFaces) = cylinder.generateInsulatorMesh(mid, dir)
-
-                exporter.addMesh(iVerts, iFaces)
-            }
-        }
-
-        // =========================================================
-        // 🔌 WIRES (FIXED)
-        // =========================================================
-        for (wire in sceneManager.wires) {
-
-            val pts = wire.points
-
-            for (i in 0 until pts.size - 1) {
-
-                val (wVerts, wFaces) = cylinder.generateCylinderMeshWorld(
-                    pts[i],
-                    pts[i + 1]
-                )
-
-                exporter.addMesh(wVerts, wFaces)
             }
         }
 

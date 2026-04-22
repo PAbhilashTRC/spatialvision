@@ -5,20 +5,15 @@ uniform vec4 u_Color;
 
 // Lighting uniforms
 uniform vec3 uPointLightingLocation;
-
 uniform vec3 uAmbientColor;
-// uniform vec4 uDiffuseColor;
-// uniform vec4 uSpecularColor;
-
 uniform vec3 uAttenuation;
-// uniform float uMaterialShininess;
 
 in vec3 v_Normal;
 in vec3 v_WorldPos;
 
 out vec4 o_FragColor;
 
-// Add this at top
+// ---------------- Noise ----------------
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
@@ -35,51 +30,80 @@ float noise(vec2 p) {
     vec2 u = f * f * (3.0 - 2.0 * f);
 
     return mix(a, b, u.x) +
-           (c - a)* u.y * (1.0 - u.x) +
-           (d - b)* u.x * u.y;
+           (c - a) * u.y * (1.0 - u.x) +
+           (d - b) * u.x * u.y;
 }
 
+// ---------------- Main ----------------
 void main() {
 
     vec3 normal = normalize(v_Normal);
 
-    // 🔥 Add vertical gradient (pole aging look)
-    float heightFactor = v_WorldPos.y * 0.2;
+    // ======================================================
+    // 🔥 OBJECT-SPACE HEIGHT (FIXED REALISM)
+    // ======================================================
+    float height = v_WorldPos.y;
 
-    // 🔥 Add subtle noise
-    float n = noise(v_WorldPos.xz * 3.0);
+    // Better gradient instead of raw world Y
+    float heightFactor = smoothstep(0.0, 8.0, height);
 
-    // Base color variation
+    // ======================================================
+    // 🔥 WOOD AGE NOISE (crucial for SPIDA look)
+    // ======================================================
+    float n = noise(v_WorldPos.xz * 2.5);
+
+    // ======================================================
+    // 🔥 BASE COLOR (with aging variation)
+    // ======================================================
     vec3 baseColor = u_Color.rgb;
-    baseColor *= 0.85 + 0.15 * n;
-    baseColor *= 0.9 + 0.1 * heightFactor;
 
-    // Light directions
+    // wood grain variation
+    baseColor *= (0.82 + 0.18 * n);
+
+    // vertical aging (bottom darker)
+    baseColor *= mix(0.65, 1.05, heightFactor);
+
+    // slight desaturation (real wood is not vivid)
+    baseColor *= 0.92;
+
+    // ======================================================
+    // 🔥 LIGHTING
+    // ======================================================
     vec3 lightDir = normalize(uPointLightingLocation - v_WorldPos);
-    vec3 viewDir = normalize(-v_WorldPos); // camera at origin assumption
+    vec3 viewDir = normalize(-v_WorldPos);
     vec3 reflectDir = reflect(-lightDir, normal);
 
-    // Distance for attenuation
     float dist = length(uPointLightingLocation - v_WorldPos);
+
     float attenuation = 1.0 / (
         uAttenuation.x +
         uAttenuation.y * dist +
         uAttenuation.z * dist * dist
     );
 
-    // Softer ambient
-    vec3 ambient = 0.5 * uAmbientColor * baseColor;
+    // ======================================================
+    // 🔥 AMBIENT (soft environmental fill)
+    // ======================================================
+    vec3 ambient = 0.55 * uAmbientColor * baseColor;
 
-    // 🔹 Diffuse
-    float wrap = 0.3;
-    float softDiff = max(0.0, (dot(normal, lightDir) + wrap) / (1.0 + wrap));
-    vec3 diffuse = softDiff * baseColor;
+    // ======================================================
+    // 🔥 DIFFUSE (wrap lighting = more realistic wood)
+    // ======================================================
+    float wrap = 0.25;
+    float diff = max(0.0, (dot(normal, lightDir) + wrap) / (1.0 + wrap));
+    vec3 diffuse = diff * baseColor;
 
-    // 🔥 Reduce plastic shine
-    float spec = pow(max(dot(reflectDir, viewDir), 0.0), 8.0); // lower shininess
-    vec3 specular = spec * vec3(0.2); // reduce intensity
+    // ======================================================
+    // 🔥 SPECULAR (VERY LOW - wood is rough)
+    // ======================================================
+    float specPower = 10.0;
+    float spec = pow(max(dot(reflectDir, viewDir), 0.0), specPower);
 
-    // Final color
+    vec3 specular = spec * vec3(0.08); // subtle only
+
+    // ======================================================
+    // 🔥 FINAL COMPOSITION
+    // ======================================================
     vec3 finalColor = ambient + attenuation * (diffuse + specular);
 
     o_FragColor = vec4(finalColor, u_Color.a);

@@ -196,7 +196,7 @@ class SceneManager(private val cylinder: Cylinder) {
 
     private fun findNearbyCrossArm(
         tapWorld: FloatArray,
-        threshold: Float = 0.5f
+        threshold: Float = 0.7f
     ): CrossArm? {
 
         var closest: CrossArm? = null
