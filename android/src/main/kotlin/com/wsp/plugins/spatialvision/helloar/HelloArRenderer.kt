@@ -517,68 +517,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
         }
     }
 
-    fun readScreenFrame(width: Int, height: Int): Bitmap {
-        val size = width * height
-        val buffer = IntArray(size)
-        val flipped = IntArray(size)
-
-        val ib = IntBuffer.wrap(buffer)
-        ib.position(0)
-
-        GLES30.glReadPixels(
-            0, 0,
-            width, height,
-            GLES30.GL_RGBA,
-            GLES30.GL_UNSIGNED_BYTE,
-            ib
-        )
-
-        // flip Y
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                flipped[(height - y - 1) * width + x] =
-                    buffer[y * width + x]
-            }
-        }
-
-        return Bitmap.createBitmap(flipped, width, height, Bitmap.Config.ARGB_8888)
-    }
-
-
-    fun readFBO(fbo: CaptureFBO): Bitmap {
-        val width = fbo.width
-        val height = fbo.height
-
-        val buffer = IntArray(width * height)
-        val flipped = IntArray(width * height)
-
-        val intBuffer = IntBuffer.wrap(buffer)
-        intBuffer.position(0)
-
-        GLES30.glReadPixels(
-            0, 0,
-            width, height,
-            GLES30.GL_RGBA,
-            GLES30.GL_UNSIGNED_BYTE,
-            intBuffer
-        )
-
-        // Flip vertically
-        for (i in 0 until height) {
-            for (j in 0 until width) {
-                flipped[(height - i - 1) * width + j] = buffer[i * width + j]
-            }
-        }
-
-        return Bitmap.createBitmap(flipped, width, height, Bitmap.Config.ARGB_8888)
-    }
-
-    fun releaseFBO(fbo: CaptureFBO) {
-        GLES30.glDeleteFramebuffers(1, intArrayOf(fbo.framebuffer), 0)
-        GLES30.glDeleteTextures(1, intArrayOf(fbo.texture), 0)
-        GLES30.glDeleteRenderbuffers(1, intArrayOf(fbo.depthBuffer), 0)
-    }
-
     /** Checks if we detected at least one plane. */
     private fun Session.hasTrackingPlane() =
         getAllTrackables(Plane::class.java).any { it.trackingState == TrackingState.TRACKING }
@@ -675,6 +613,12 @@ class HelloArRenderer(val activity: HelloArActivity) :
             0.4f
         )
 
+        val material_bolt = exporter.addMaterial(
+            floatArrayOf(0.7f, 0.7f, 0.7f, 1.0f),   // Silver/Metal
+            0.8f,
+            0.3f
+        )
+
         val material_wire = exporter.addMaterial(
             floatArrayOf(0.3f, 0.3f, 0.3f, 1.0f),   // Dark gray
             0.7f,
@@ -685,6 +629,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
         // 🔵 POLES
         // =========================================================
         for (pole in sceneManager.poles) {
+            val poleDir = sceneManager.getPoleDirection(pole)
+
             val (verts, faces) = cylinder.generateCylinderMeshWorld(
                 pole.base.position,
                 pole.top.position,
@@ -724,31 +670,45 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 }
 
                 // =====================================================
-                // 🔩 INSULATOR
+                // 🔩 GENERATE 3 INSULATORS AND BOLTS
                 // =====================================================
-                val mid = Vec3(
-                    (arm.localStart.x + arm.localEnd.x) * 0.5f,
-                    (arm.localStart.y + arm.localEnd.y) * 0.5f,
-                    (arm.localStart.z + arm.localEnd.z) * 0.5f
-                )
+                val insulatorBasePoints = sceneManager.getAttachmentPointsOnArm(arm)
+                val insulatorTipPoints = sceneManager.getInsulatorTipPoints(arm, poleDir)
 
-                val dir = MathUtils.normalize(
-                    floatArrayOf(
-                        arm.localEnd.x - arm.localStart.x,
-                        arm.localEnd.y - arm.localStart.y,
-                        arm.localEnd.z - arm.localStart.z
+                // Generate insulator and bolt for each phase
+                insulatorBasePoints.forEachIndexed { index, basePoint ->
+                    val tipPoint = insulatorTipPoints[index]
+
+                    // Generate insulator mesh (from base to tip)
+                    val (iVerts, iFaces) = cylinder.generateInsulatorMeshWithPoints(
+                        basePoint,
+                        tipPoint  // Pass both points for proper orientation
                     )
-                )
 
-                val (iVerts, iFaces) = cylinder.generateInsulatorMesh(mid, dir)
+                    if (iVerts.isNotEmpty() && iFaces.isNotEmpty()) {
+                        exporter.addMesh(
+                            iVerts.map { it.position },
+                            iFaces,
+                            iVerts.map { it.normal },
+                            material_insulator
+                        )
+                    }
 
-                if (iVerts.isNotEmpty() && iFaces.isNotEmpty()) {
-                    exporter.addMesh(
-                        iVerts.map { it.position },
-                        iFaces,
-                        iVerts.map { it.normal },
-                        material_insulator
+                    // Generate bolt at the attachment point (where insulator meets cross arm)
+                    val (bVerts, bFaces) = cylinder.generateBoltMeshWithPoints(
+                        basePoint,
+                        radius = 0.008f,
+                        height = 0.012f
                     )
+
+                    if (bVerts.isNotEmpty() && bFaces.isNotEmpty()) {
+                        exporter.addMesh(
+                            bVerts.map { it.position },
+                            bFaces,
+                            bVerts.map { it.normal },
+                            material_bolt
+                        )
+                    }
                 }
             }
         }
@@ -799,70 +759,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     }
 
-    private fun handleDrag(frame: Frame, camera: Camera) {
-        val session = session ?: return
-
-        if (camera.trackingState != TrackingState.TRACKING) return
-
-
-        val tapHelper = activity.view.tapHelper
-
-        // 👉 Not dragging → reset state safely
-        if (!tapHelper.isDragging()) {
-            if (currentMode == InteractionMode.DRAGGING ||
-                currentMode == InteractionMode.SELECTED) {
-
-                selectedAnchor?.isSelected = false
-                selectedAnchor = null
-                currentMode = InteractionMode.NONE
-            }
-            return
-        }
-
-        val event = tapHelper.pollDrag() ?: return
-
-        when (event.actionMasked) {
-
-            MotionEvent.ACTION_DOWN -> {
-                val selected = findSelectedAnchor(frame, event)
-
-                if (selected != null) {
-                    selectedAnchor = selected
-                    selected.isSelected = true
-                    currentMode = InteractionMode.SELECTED
-                }
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-
-                if (currentMode == InteractionMode.SELECTED && selectedAnchor != null) {
-                    currentMode = InteractionMode.DRAGGING
-                }
-
-                if (currentMode == InteractionMode.DRAGGING && selectedAnchor != null) {
-
-                    // 🔥 THROTTLE (critical for stability)
-                    if (System.currentTimeMillis() - lastUpdateTime < 50) return
-
-                    val newAnchor =
-                        tapHandler.getStableDepthAnchor(session, frame, camera, event)
-                            ?: frame.hitTest(event.x, event.y)
-                                .firstOrNull {
-                                    it.trackable is DepthPoint ||
-                                            it.trackable is Plane
-                                }?.createAnchor()
-
-                    if (newAnchor != null) {
-                        // 🔥 APPLY DRAG
-                        selectedAnchor?.anchor?.detach()
-                        selectedAnchor?.anchor = newAnchor
-
-                        lastUpdateTime = System.currentTimeMillis()
-                    }
-                }
-            }
-        }
-    }
     fun findSelectedAnchor(frame: Frame, tap: MotionEvent): WrappedAnchor? {
 
         val thresholdPx = 100f
@@ -923,70 +819,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
         val y = ((1f - ndcY) / 2f) * screenHeight
 
         return floatArrayOf(x, y)
-    }
-
-    fun createFBO(width: Int, height: Int): CaptureFBO {
-        val fbo = IntArray(1)
-        val texture = IntArray(1)
-        val depth = IntArray(1)
-
-        // Framebuffer
-        GLES30.glGenFramebuffers(1, fbo, 0)
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo[0])
-
-        // Texture (color attachment)
-        GLES30.glGenTextures(1, texture, 0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture[0])
-
-        GLES30.glTexImage2D(
-            GLES30.GL_TEXTURE_2D,
-            0,
-            GLES30.GL_RGBA,
-            width,
-            height,
-            0,
-            GLES30.GL_RGBA,
-            GLES30.GL_UNSIGNED_BYTE,
-            null
-        )
-
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
-
-        GLES30.glFramebufferTexture2D(
-            GLES30.GL_FRAMEBUFFER,
-            GLES30.GL_COLOR_ATTACHMENT0,
-            GLES30.GL_TEXTURE_2D,
-            texture[0],
-            0
-        )
-
-        // Depth buffer
-        GLES30.glGenRenderbuffers(1, depth, 0)
-        GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, depth[0])
-        GLES30.glRenderbufferStorage(
-            GLES30.GL_RENDERBUFFER,
-            GLES30.GL_DEPTH_COMPONENT16,
-            width,
-            height
-        )
-
-        GLES30.glFramebufferRenderbuffer(
-            GLES30.GL_FRAMEBUFFER,
-            GLES30.GL_DEPTH_ATTACHMENT,
-            GLES30.GL_RENDERBUFFER,
-            depth[0]
-        )
-
-        // Check
-        val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
-        if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) {
-            throw RuntimeException("FBO not complete: $status")
-        }
-
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-
-        return CaptureFBO(fbo[0], texture[0], depth[0], width, height)
     }
 
 
