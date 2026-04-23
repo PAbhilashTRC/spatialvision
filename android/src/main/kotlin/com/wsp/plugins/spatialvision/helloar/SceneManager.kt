@@ -1,3 +1,4 @@
+
 package com.wsp.plugins.spatialvision.helloar
 
 class SceneManager(private val cylinder: Cylinder) {
@@ -40,6 +41,9 @@ class SceneManager(private val cylinder: Cylinder) {
         } else {
             poles.add(createPole(pendingPoleBase!!, point))
             pendingPoleBase = null
+            if(poles.size % 2 == 0 && poles[poles.size - 1].crossArms.isNotEmpty() && poles[poles.size - 2].crossArms.isNotEmpty()){
+                createWire(poles[poles.size-2].crossArms[0], poles[poles.size-1].crossArms[0])
+            }
         }
     }
 
@@ -77,8 +81,6 @@ class SceneManager(private val cylinder: Cylinder) {
         val dirA = getPoleDirection(poleA)
         val dirB = getPoleDirection(poleB)
 
-//        val pointsA = getInsulatorAttachmentPoints(a, dirA)
-//        val pointsB = getInsulatorAttachmentPoints(b, dirB)
         val pointsA = getInsulatorTipPoints(a, dirA)
         val pointsB = getInsulatorTipPoints(b, dirB)
 
@@ -226,29 +228,7 @@ class SceneManager(private val cylinder: Cylinder) {
                     // Center insulator points UP
                     floatArrayOf(0f, 1f, 0f)
                 } else {
-                    // End insulators point DOWN and slightly outward
-                    val outwardDir = floatArrayOf(
-                        basePoint.x - armCenter.x,
-                        basePoint.y - armCenter.y,
-                        basePoint.z - armCenter.z
-                    ).let { dir ->
-                        val len = kotlin.math.sqrt(dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2])
-                        if (len > 0) {
-                            dir[0] /= len
-                            dir[1] /= len
-                            dir[2] /= len
-                        }
-                        dir
-                    }
-
-                    // Downward direction with outward component
-                    floatArrayOf(
-                        outwardDir[0] * 0.3f,
-                        -0.8f,  // Mainly downward
-                        outwardDir[2] * 0.3f
-                    ).let { dir ->
-                        normalize(dir)
-                    }
+                    floatArrayOf(0f, -1f, 0f)
                 }
             }
         }
@@ -370,7 +350,7 @@ class SceneManager(private val cylinder: Cylinder) {
             (start.y + end.y) * 0.5f,
             (start.z + end.z) * 0.5f
         )
-
+        val up = floatArrayOf(0f, 1f, 0f)
         return when (currentConfig) {
             // =========================
             // HORIZONTAL - 3 insulators along the arm (horizontal)
@@ -401,19 +381,34 @@ class SceneManager(private val cylinder: Cylinder) {
             }
 
             // =========================
-            // DELTA - Triangle formation (2 insulators at ends)
-            // Direction: downward (parallel with pole)
+            // DELTA (triangle)
             // =========================
             PhaseConfig.DELTA -> {
-                val offset = length * 0.4f  // Offset from center for left/right positions
+
+                val size = length * 0.25f
+
+                // get perpendicular direction
+                val right = MathUtils.normalize(
+                    MathUtils.cross(dir, up)
+                )
 
                 listOf(
-                    // Left insulator
-                    pointOnLine(start, dir, offset),
-                    // Center insulator (points UP)
-                    pointOnLine(start, dir, length / 2f),
-                    // Right insulator
-                    pointOnLine(start, dir, length - offset)
+                    // top
+                    Vec3(mid.x, mid.y + size, mid.z),
+
+                    // bottom left
+                    Vec3(
+                        mid.x - right[0] * size * 1.5f,
+                        mid.y - size * 0.8f,
+                        mid.z - right[2] * size * 1.5f
+                    ),
+
+                    // bottom right
+                    Vec3(
+                        mid.x + right[0] * size * 1.5f,
+                        mid.y - size * 0.8f,
+                        mid.z + right[2] * size * 1.5f
+                    )
                 )
             }
         }

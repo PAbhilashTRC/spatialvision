@@ -19,6 +19,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.res.Resources
+import android.graphics.Bitmap
 import android.net.Uri
 import android.opengl.GLSurfaceView
 import android.os.Build
@@ -48,15 +49,43 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   val slider = root.findViewById<SeekBar>(R.id.radius_slider)
 //  val slider_value = root.findViewById<TextView>(R.id.slider_value)
 
-  val pipeRadius = root.findViewById<TextView>( R.id.radius)
+//  val pipeRadius = root.findViewById<TextView>( R.id.radius)
 
   var onExportRequested: (() -> Unit)? = null
+
+//  var onPhaseConfigChange: PhaseConfig = PhaseConfig.VERTICAL
+
+  var onPhaseConfigChange: ((PhaseConfig) -> Unit)? = null
+  // Store reference to the current popup menu
+  private var currentPopupMenu: PopupMenu? = null
   var showCardLabel = false
+
+  val captureBtn = root.findViewById<ImageButton>(R.id.btn_capture)
+
+//  val onCapture = captureBtn.apply {
+//    setOnClickListener {
+//      surfaceView.queueEvent {
+//        renderer.captureFrame = true
+//      }
+//    }
+//  }
   val settingsButton =
     root.findViewById<ImageButton>(R.id.settings_button).apply {
       setOnClickListener { v ->
         PopupMenu(activity, v).apply {
+          currentPopupMenu = this
           inflate(R.menu.settings_menu)
+
+          val current = activity.sceneManager.currentConfig
+
+          menu.findItem(R.id.config_horizontal)?.isChecked =
+            current == PhaseConfig.HORIZONTAL
+
+          menu.findItem(R.id.config_vertical)?.isChecked =
+            current == PhaseConfig.VERTICAL
+
+          menu.findItem(R.id.config_delta)?.isChecked =
+            current == PhaseConfig.DELTA
 
           menu.findItem(R.id.card)?.isChecked = showCardLabel
 
@@ -64,6 +93,19 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
             when (item.itemId) {
               R.id.depth_settings -> launchDepthSettingsMenuDialog()
               R.id.instant_placement_settings -> launchInstantPlacementSettingsMenuDialog()
+              R.id.config_horizontal -> {
+                onPhaseConfigChange?.invoke(PhaseConfig.HORIZONTAL)
+                true
+              }
+              R.id.config_vertical -> {
+                onPhaseConfigChange?.invoke(PhaseConfig.VERTICAL)
+                true
+              }
+
+              R.id.config_delta -> {
+                onPhaseConfigChange?.invoke(PhaseConfig.DELTA)
+                true
+              }
               R.id.card -> {
                 showCardLabel = !showCardLabel
                 item.isChecked = showCardLabel
@@ -103,15 +145,28 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
     return file
   }
 
+  // Add a method to update menu item states
+  fun updateMenuCheckedStates(config: PhaseConfig) {
+    currentPopupMenu?.let { menu ->
+      menu.menu.findItem(R.id.config_horizontal)?.isChecked = config == PhaseConfig.HORIZONTAL
+      menu.menu.findItem(R.id.config_vertical)?.isChecked = config == PhaseConfig.VERTICAL
+      menu.menu.findItem(R.id.config_delta)?.isChecked = config == PhaseConfig.DELTA
+    }
+  }
+
   @RequiresApi(Build.VERSION_CODES.Q)
   fun saveObjToDownloadsModern(context: Context, content: ByteArray): Uri? {
 
     val resolver = context.contentResolver
+    // Create timestamp: yyyyMMdd_HHmmss
+    val timestamp = java.text.SimpleDateFormat(
+      "yyyyMMdd_HHmmss",
+      java.util.Locale.getDefault()
+    ).format(java.util.Date())
 
+    val fileName = "scene_$timestamp.glb"
     val values = ContentValues().apply {
-//      put(MediaStore.Downloads.DISPLAY_NAME, "scene.obj")
-//      put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-      put(MediaStore.Downloads.DISPLAY_NAME, "scene.glb")
+      put(MediaStore.Downloads.DISPLAY_NAME, fileName)
       put(MediaStore.Downloads.MIME_TYPE, "model/gltf-binary")
       put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
     }
@@ -126,6 +181,25 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
     }
 
     return uri
+  }
+
+  fun saveBitmap(context: Context, bitmap: Bitmap) {
+    val filename = "AR_${System.currentTimeMillis()}.png"
+
+    val resolver = context.contentResolver
+    val values = ContentValues().apply {
+      put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+      put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+      put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ARCaptures")
+    }
+
+    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+
+    uri?.let {
+      resolver.openOutputStream(it)?.use { stream ->
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+      }
+    }
   }
 
   fun shareFile(context: Context, file: File) {

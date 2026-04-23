@@ -10,22 +10,22 @@
   <item android:id="@+id/download" android:title="Download" />
 
   <group android:checkableBehavior="single">
-
     <item
         android:id="@+id/config_horizontal"
         android:title="Horizontal 3-Phase"
-        android:checked="true"
+        android:checkable="true"
         app:showAsAction="never"/>
 
     <item
         android:id="@+id/config_vertical"
         android:title="Vertical Stack"
+        android:checkable="true"
         app:showAsAction="never"/>
 
     <item
         android:id="@+id/config_delta"
         android:title="Delta (Triangle)"
+        android:checkable="true"
         app:showAsAction="never"/>
-
   </group>
 </menu>

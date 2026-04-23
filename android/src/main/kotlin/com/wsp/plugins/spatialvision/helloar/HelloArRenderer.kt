@@ -2,7 +2,9 @@ package com.wsp.plugins.spatialvision.helloar
 
 //import com.wsp.plugins.spatialvision.common.samplerender.arcore.PlaneRenderer
 //import com.wsp.plugins.spatialvision.GeoSpatial
+import ARSimpleCapture
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
 import android.opengl.GLES30
 import android.opengl.Matrix
 import android.util.Log
@@ -35,6 +37,9 @@ import com.wsp.plugins.spatialvision.common.samplerender.arcore.BackgroundRender
 import com.wsp.plugins.spatialvision.common.samplerender.arcore.SpecularCubemapFilter
 import java.io.IOException
 import java.nio.ByteBuffer
+import java.nio.IntBuffer
+import java.util.Timer
+import java.util.TimerTask
 
 /** Renders the HelloAR application using our example Renderer. */
 class HelloArRenderer(val activity: HelloArActivity) :
@@ -92,23 +97,15 @@ class HelloArRenderer(val activity: HelloArActivity) :
     lateinit var cubemapFilter: SpecularCubemapFilter
 
     // Temporary matrix allocated here to reduce number of allocations for each frame.
-    val modelMatrix = FloatArray(16)
-    val baseModelMatrix = FloatArray(16)
-    val topModelMatrix = FloatArray(16)
     val viewMatrix = FloatArray(16)
     val projectionMatrix = FloatArray(16)
-    val modelViewMatrix = FloatArray(16) // view x model
 
     val labelViewProjectionMatrix  = FloatArray(16) // view x projection
 
     private lateinit var labelRenderer: LabelRender
 
-    val isCard = activity.view.showCardLabel
-    var depthConfidence: Int? = null;
-
 //    private var cylinder: Cylinder? = null
     private lateinit var cylinder: Cylinder
-    private lateinit var poleWire: PoleWire
 
     val modelViewProjectionMatrix = FloatArray(16) // projection x view x model
 
@@ -127,14 +124,18 @@ class HelloArRenderer(val activity: HelloArActivity) :
     var selectedAnchor: WrappedAnchor? = null
 
     private var lastUpdateTime = 0L
-
-    enum class Mode {
-        AUTO, POLE, WIRE
-    }
-    private var exporter: ObjExporter = ObjExporter()
-
     private lateinit var sceneManager: SceneManager
     private lateinit var tapHandler: TapHandler
+
+    @Volatile
+    var captureHighRes = false
+
+    var captureWidth = 1920   // or 4096 if device supports
+    var captureHeight = 1080
+
+    private var viewportWidth = 1
+    private var viewportHeight = 1
+//    private val captureHelper = ARCaptureHelper(viewportWidth, viewportHeight)
 
     override fun onResume(owner: LifecycleOwner) {
         displayRotationHelper.onResume()
@@ -255,26 +256,32 @@ class HelloArRenderer(val activity: HelloArActivity) :
             sceneManager = SceneManager(cylinder)
             tapHandler = TapHandler(sceneManager)
 
-            activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            activity.view.captureBtn.setOnClickListener {
+                activity.view.surfaceView.queueEvent {
+                    captureHighRes = true
+                  }
+            }
 
-                @SuppressLint("SetTextI18n")
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val minRadius = 0.01f   // 1 cm
-                    val maxRadius = 0.5f    // 50 cm
+//            activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
 
-                    val t = progress / 100f
-                    val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
-                    val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
-                    activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
+//                @SuppressLint("SetTextI18n")
+//                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+//                    val minRadius = 0.01f   // 1 cm
+//                    val maxRadius = 0.5f    // 50 cm
+//
+//                    val t = progress / 100f
+//                    val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
+//                    val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
+//                    activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
 //                    activity.view.slider_value.text = "Slider Value : $progress"
 //                val radius = progress / 1000f  // scale factor
-                    cylinder?.setRadius(radiusMeters)
-                }
+//                    cylinder?.setRadius(radiusMeters)
+//                }
 
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-            })
+//                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+//
+//                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+//            })
         } catch (e: IOException) {
             Log.e(TAG, "Failed to read a required asset file", e)
             showError("Failed to read a required asset file: $e")
@@ -284,6 +291,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
     override fun onSurfaceChanged(render: SampleRender, width: Int, height: Int) {
         displayRotationHelper.onSurfaceChanged(width, height)
         virtualSceneFramebuffer.resize(width, height)
+        viewportWidth = width
+        viewportHeight = height
     }
 
     override fun onDrawFrame(render: SampleRender) {
@@ -306,6 +315,17 @@ class HelloArRenderer(val activity: HelloArActivity) :
         }
 
         val camera = frame.camera
+
+        // --- Decide resolution (NORMAL vs HIGH-RES) ---
+        val isCapturing = captureHighRes
+        val targetWidth = if (isCapturing) captureWidth else viewportWidth
+        val targetHeight = if (isCapturing) captureHeight else viewportHeight
+
+        // ✅ Resize framebuffer
+        virtualSceneFramebuffer.resize(targetWidth, targetHeight)
+
+        // ✅ Set viewport
+//        render.setViewport(0, 0, targetWidth, targetHeight)
 
         // --- Background / Depth ---
         try {
@@ -337,7 +357,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // --- Input ---
         handleTap(frame, camera)
-        handleDrag(frame, camera)
+//        handleDrag(frame, camera)
 
         trackingStateHelper.updateKeepScreenOnFlag(camera.trackingState)
 
@@ -385,6 +405,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
             // --- Draw pole (cylinder) ---
             cylinder.draw(render, start, end, viewMatrix, projectionMatrix,
                 uColor = floatArrayOf(0.68f, 0.62f, 0.40f, 1.0f),
+                radius = 0.05f,
                 asset = "Pole")
 
             // --- Distance label (Pole height) ---
@@ -403,7 +424,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
             pole.crossArms.forEach { arm ->
                 cylinder.draw(render, arm.localStart, arm.localEnd,
                     viewMatrix, projectionMatrix,
-                    uColor = floatArrayOf(0.45f, 0.35f, 0.25f, 1.0f), asset = "Crass_arms")
+                    uColor = floatArrayOf(0.45f, 0.35f, 0.25f, 1.0f),
+                    radius = 0.02f,
+                    asset = "Crass_arms")
                 val labelData = labelRenderer.calculateDistance(
                     start = arm.localStart,
                     end = arm.localEnd,
@@ -421,7 +444,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 // ========================================================
                 // 🔥 Insulators
                 // ========================================================
-
                 // Get pole direction for this pole
                 val poleDir = sceneManager.getPoleDirection(pole)
 
@@ -451,7 +473,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
             for (i in 0 until wire.points.size - 1) {
                 val p1 = wire.points[i]
                 val p2 = wire.points[i + 1]
-//                cylinder.setRadius(0.005f)
                 cylinder.draw(
                     render,
                     p1,
@@ -459,6 +480,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     viewMatrix,
                     projectionMatrix,
                     floatArrayOf(0.50f, 0.52f, 0.54f, 1.0f),
+                    radius = 0.008f,
                     asset = "wires"
                 )
             }
@@ -472,6 +494,89 @@ class HelloArRenderer(val activity: HelloArActivity) :
             Z_NEAR,
             Z_FAR
         )
+
+        // ============================================================
+        // 📸 HIGH-RES CAPTURE
+        // ============================================================
+        // Simple direct capture (RECOMMENDED for your use case)
+        if (captureHighRes) {
+            captureHighRes = false
+
+            try {
+                // Give GPU a moment to finish
+                GLES30.glFinish()
+
+                val simpleCapture = ARSimpleCapture()
+                val bitmap = simpleCapture.captureScreen(viewportWidth, viewportHeight)
+                activity.view.saveBitmap(context = this.activity, bitmap = bitmap)
+            } catch (e: Exception) {
+                Log.e("Capture", "Failed to capture: ${e.message}")
+            }
+
+            virtualSceneFramebuffer.resize(viewportWidth, viewportHeight)
+        }
+    }
+
+    fun readScreenFrame(width: Int, height: Int): Bitmap {
+        val size = width * height
+        val buffer = IntArray(size)
+        val flipped = IntArray(size)
+
+        val ib = IntBuffer.wrap(buffer)
+        ib.position(0)
+
+        GLES30.glReadPixels(
+            0, 0,
+            width, height,
+            GLES30.GL_RGBA,
+            GLES30.GL_UNSIGNED_BYTE,
+            ib
+        )
+
+        // flip Y
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                flipped[(height - y - 1) * width + x] =
+                    buffer[y * width + x]
+            }
+        }
+
+        return Bitmap.createBitmap(flipped, width, height, Bitmap.Config.ARGB_8888)
+    }
+
+
+    fun readFBO(fbo: CaptureFBO): Bitmap {
+        val width = fbo.width
+        val height = fbo.height
+
+        val buffer = IntArray(width * height)
+        val flipped = IntArray(width * height)
+
+        val intBuffer = IntBuffer.wrap(buffer)
+        intBuffer.position(0)
+
+        GLES30.glReadPixels(
+            0, 0,
+            width, height,
+            GLES30.GL_RGBA,
+            GLES30.GL_UNSIGNED_BYTE,
+            intBuffer
+        )
+
+        // Flip vertically
+        for (i in 0 until height) {
+            for (j in 0 until width) {
+                flipped[(height - i - 1) * width + j] = buffer[i * width + j]
+            }
+        }
+
+        return Bitmap.createBitmap(flipped, width, height, Bitmap.Config.ARGB_8888)
+    }
+
+    fun releaseFBO(fbo: CaptureFBO) {
+        GLES30.glDeleteFramebuffers(1, intArrayOf(fbo.framebuffer), 0)
+        GLES30.glDeleteTextures(1, intArrayOf(fbo.texture), 0)
+        GLES30.glDeleteRenderbuffers(1, intArrayOf(fbo.depthBuffer), 0)
     }
 
     /** Checks if we detected at least one plane. */
@@ -547,81 +652,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
         val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
         return labelPose
     }
-
-//    fun exportSceneGLB(): ByteArray {
-//        val material_pole = 0
-//        val material_arm = 1
-//        val material_insulator = 2
-//        val material_wire = 3
-//        val exporter = GlbExporter()
-//
-//        // =========================================================
-//        // 🔵 POLES
-//        // =========================================================
-//        for (pole in sceneManager.poles) {
-//
-//            val (verts, faces) = cylinder.generateCylinderMeshWorld(
-//                pole.base.position,
-//                pole.top.position
-//            )
-//
-//            exporter.addMesh(verts.map {it.position}, faces, verts.map {it.normal}, material_pole)
-//
-//            // =====================================================
-//            // 🟫 CROSS ARMS
-//            // =====================================================
-//            pole.crossArms.forEach { arm ->
-//
-//                val (aVerts, aFaces) = cylinder.generateCylinderMeshWorld(
-//                    arm.localStart,
-//                    arm.localEnd
-//                )
-//
-//                exporter.addMesh(aVerts.map {it.position},
-//                    aFaces,
-//                    aVerts.map {it.normal},
-//                    material_arm)
-//
-//                // =====================================================
-//                // 🔩 INSULATOR
-//                // =====================================================
-//                val mid = Vec3(
-//                    (arm.localStart.x + arm.localEnd.x) * 0.5f,
-//                    (arm.localStart.y + arm.localEnd.y) * 0.5f,
-//                    (arm.localStart.z + arm.localEnd.z) * 0.5f
-//                )
-//
-//                val dir = MathUtils.normalize(
-//                    floatArrayOf(
-//                        arm.localEnd.x - arm.localStart.x,
-//                        arm.localEnd.y - arm.localStart.y,
-//                        arm.localEnd.z - arm.localStart.z
-//                    )
-//                )
-//
-//                val (iVerts, iFaces) = cylinder.generateInsulatorMesh(mid, dir)
-//
-//                exporter.addMesh(iVerts.map {it.position},
-//                    iFaces,
-//                    iVerts.map {it.normal},
-//                    material_insulator)
-//            }
-//        }
-//
-//        // =========================================================
-//        // 🔌 WIRES (FIXED CONCEPT)
-//        // =========================================================
-//        for (wire in sceneManager.wires) {
-//
-//            val (wVerts, wFaces) = cylinder.generateWireSplineMesh(wire.points)
-//
-//            exporter.addMesh(wVerts.map {it.position},
-//                wFaces, wVerts.map { it.normal},
-//                material_wire)
-//        }
-//
-//        return exporter.buildGLB()
-//    }
 
     fun exportSceneGLB(): ByteArray {
         val exporter = GlbExporter()
@@ -895,6 +925,70 @@ class HelloArRenderer(val activity: HelloArActivity) :
         return floatArrayOf(x, y)
     }
 
+    fun createFBO(width: Int, height: Int): CaptureFBO {
+        val fbo = IntArray(1)
+        val texture = IntArray(1)
+        val depth = IntArray(1)
+
+        // Framebuffer
+        GLES30.glGenFramebuffers(1, fbo, 0)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo[0])
+
+        // Texture (color attachment)
+        GLES30.glGenTextures(1, texture, 0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture[0])
+
+        GLES30.glTexImage2D(
+            GLES30.GL_TEXTURE_2D,
+            0,
+            GLES30.GL_RGBA,
+            width,
+            height,
+            0,
+            GLES30.GL_RGBA,
+            GLES30.GL_UNSIGNED_BYTE,
+            null
+        )
+
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+
+        GLES30.glFramebufferTexture2D(
+            GLES30.GL_FRAMEBUFFER,
+            GLES30.GL_COLOR_ATTACHMENT0,
+            GLES30.GL_TEXTURE_2D,
+            texture[0],
+            0
+        )
+
+        // Depth buffer
+        GLES30.glGenRenderbuffers(1, depth, 0)
+        GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, depth[0])
+        GLES30.glRenderbufferStorage(
+            GLES30.GL_RENDERBUFFER,
+            GLES30.GL_DEPTH_COMPONENT16,
+            width,
+            height
+        )
+
+        GLES30.glFramebufferRenderbuffer(
+            GLES30.GL_FRAMEBUFFER,
+            GLES30.GL_DEPTH_ATTACHMENT,
+            GLES30.GL_RENDERBUFFER,
+            depth[0]
+        )
+
+        // Check
+        val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+        if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) {
+            throw RuntimeException("FBO not complete: $status")
+        }
+
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+
+        return CaptureFBO(fbo[0], texture[0], depth[0], width, height)
+    }
+
 
     private fun showError(errorMessage: String) =
         activity.view.snackbarHelper.showError(activity, errorMessage)
@@ -932,22 +1026,7 @@ data class CrossArm(
     val localEnd: Vec3,
     val id: String = java.util.UUID.randomUUID().toString(),
     val config: PhaseConfig = PhaseConfig.HORIZONTAL
-) {
-fun mid(): Vec3 {
-    return Vec3(
-        (localStart.x + localEnd.x) * 0.5f,
-        (localStart.y + localEnd.y) * 0.5f,
-        (localStart.z + localEnd.z) * 0.5f
-    )
-}
-}
-//
-//data class Wire(
-//    val startArm: CrossArm,
-//    val endArm: CrossArm,
-//    var points: List<Vec3> = emptyList(),
-//    var tension: Float = 1.0f
-//)
+)
 
 data class Wire(
     val startInsulator: Vec3,
@@ -969,7 +1048,10 @@ enum class PhaseConfig {
     DELTA
 }
 
-data class Insulator(
-    val position: Vec3,
-    val wireDir: Vec3
+data class CaptureFBO(
+    val framebuffer: Int,
+    val texture: Int,
+    val depthBuffer: Int,
+    val width: Int,
+    val height: Int
 )

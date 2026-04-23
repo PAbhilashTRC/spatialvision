@@ -45,7 +45,7 @@ class HelloArActivity : AppCompatActivity() {
     lateinit var arCoreSessionHelper: ARCoreSessionLifecycleHelper
     lateinit var view: HelloArView
     lateinit var renderer: HelloArRenderer
-    private lateinit var sceneManager: SceneManager;
+    lateinit var sceneManager: SceneManager;
 
     val instantPlacementSettings = InstantPlacementSettings()
     val depthSettings = DepthSettings()
@@ -83,6 +83,9 @@ class HelloArActivity : AppCompatActivity() {
         // Configure session features, including: Lighting Estimation, Depth mode, Instant Placement.
         arCoreSessionHelper.beforeSessionResume = ::configureSession
         lifecycle.addObserver(arCoreSessionHelper)
+        val cylinder = Cylinder()
+        // 1. Core systems
+        sceneManager = SceneManager(cylinder)
 
         // Set up Hello AR UI.
         view = HelloArView(this)
@@ -91,6 +94,10 @@ class HelloArActivity : AppCompatActivity() {
 
         view.onExportRequested = {
             triggerExport()
+        }
+        view.onPhaseConfigChange = { config ->
+            sceneManager.currentConfig = config
+            view.updateMenuCheckedStates(config)
         }
 
         // Set up the Hello AR renderer.
@@ -105,7 +112,7 @@ class HelloArActivity : AppCompatActivity() {
 
         // 👇 Add this (find button from layout)
         val closeButton: Button = findViewById<Button>(R.id.close_button)
-        distanceObjToObj = findViewById(R.id.distance_between_objects)
+//        distanceObjToObj = findViewById(R.id.distance_between_objects)
 //        distanceCamToObj1 = findViewById(R.id.distance_cam_obj1)
 //        distanceCamToObj2 = findViewById(R.id.distance_cam_obj2)
 //        depthConfidence = findViewById(R.id.depth_confidence)
@@ -143,7 +150,7 @@ class HelloArActivity : AppCompatActivity() {
     @SuppressLint("SetTextI18n")
     fun updateDistances(objToObj: Float?, camToObj1: Float?, camToObj2: Float?, confidence: Int?) {
         runOnUiThread {
-            distanceObjToObj.text = "Obj1 ↔ Obj2: ${format(objToObj)} m"
+//            distanceObjToObj.text = "Obj1 ↔ Obj2: ${format(objToObj)} m"
 //            distanceCamToObj1.text = "Camera → Obj1: ${format(camToObj1)} m"
 //            distanceCamToObj2.text = "Camera → Obj2: ${format(camToObj2)} m"
 //            depthConfidence.text = "Confidence: $confidence"
@@ -167,7 +174,6 @@ class HelloArActivity : AppCompatActivity() {
         Thread {
 
             try {
-//                val obj = renderer.exportScene()
                 val glb = renderer.exportSceneGLB()
 
                 val uri = view.saveObjToDownloadsModern(this, glb)
@@ -181,29 +187,6 @@ class HelloArActivity : AppCompatActivity() {
             }
 
         }.start()
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-
-        when (item.itemId) {
-
-            R.id.config_horizontal -> {
-                sceneManager.currentConfig = PhaseConfig.HORIZONTAL
-                item.isChecked = true
-            }
-
-            R.id.config_vertical -> {
-                sceneManager.currentConfig = PhaseConfig.VERTICAL
-                item.isChecked = true
-            }
-
-            R.id.config_delta -> {
-                sceneManager.currentConfig = PhaseConfig.DELTA
-                item.isChecked = true
-            }
-        }
-
-        return super.onOptionsItemSelected(item)
     }
 
     override fun onRequestPermissionsResult(

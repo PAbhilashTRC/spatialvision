@@ -17,7 +17,7 @@ class Cylinder {
     private lateinit var cylinderMesh: Mesh
     private lateinit var cylinderVertexBuffer: VertexBuffer
 
-    private var radius: Float = 0.01f
+//    private var radius: Float = 0.01f
 
     fun onSurfaceCreated(render: SampleRender) {
         try{
@@ -71,7 +71,8 @@ class Cylinder {
              end: Vec3,
              viewMatrix: FloatArray,
              projectionMatrix: FloatArray,
-            uColor: FloatArray = floatArrayOf(0.0f, 0.45f, 0.15f, 1.0f),
+             uColor: FloatArray = floatArrayOf(0.0f, 0.45f, 0.15f, 1.0f),
+             radius: Float,
              asset: String){
 //        if (asset == "wires"){
 //            radius = 0.005f;
@@ -125,9 +126,9 @@ class Cylinder {
         return listOf(CrossArm(arm1Start, arm1End))
     }
 
-    fun setRadius(newRadius: Float) {
-        radius = newRadius.coerceAtLeast(0.01f)
-    }
+//    fun setRadius(newRadius: Float) {
+//        radius = newRadius.coerceAtLeast(0.01f)
+//    }
 
     private fun computeBasis(dir: FloatArray): Pair<FloatArray, FloatArray> {
         val up = floatArrayOf(0f, 1f, 0f)
@@ -177,9 +178,9 @@ class Cylinder {
             attachPoint.z + dir[2] * boltHeight
         )
 
-        setRadius(0.005f)
+//        setRadius(0.005f)
         draw(render, attachPoint, boltEnd, view, proj,
-            floatArrayOf(0.2f, 0.2f, 0.2f, 1f), asset) // metallic
+            floatArrayOf(0.2f, 0.2f, 0.2f, 1f), radius=0.005f, asset) // metallic
 
         // ⚪ Insulator (on top of bolt)
         val insStart = boltEnd
@@ -189,9 +190,9 @@ class Cylinder {
             insStart.z + dir[2] * insulatorHeight
         )
 
-        setRadius(0.015f)
+//        setRadius(0.015f)
         draw(render, insStart, insEnd, view, proj,
-            uColor, asset) // ceramic look
+            uColor, radius=0.015f, asset) // ceramic look
     }
 
     fun generateCylinderMeshWorld(
