@@ -88,6 +88,33 @@ class HelloArActivity : AppCompatActivity() {
         renderer = HelloArRenderer(this)
         lifecycle.addObserver(renderer)
 
+        // Setup UI callbacks
+        view.callbacks = object : HelloArView.AnchorUICallbacks {
+            override fun onPlaceStartPoint() {
+                renderer.placeStartPointManually()
+            }
+
+            override fun onPlaceEndPoint() {
+                renderer.placeEndPointManually()
+            }
+
+            override fun onResetAnchors() {
+                renderer.resetAnchors()
+                view.resetUI()
+            }
+
+            override fun onToggleMode(isAutoMode: Boolean) {
+                renderer.setAutoPlacementEnabled(isAutoMode)
+                if (!isAutoMode) {
+                    // In manual mode, disable continuous placement
+                    renderer.disableContinuousPlacement()
+                } else {
+                    // Re-enable auto placement
+                    renderer.enableContinuousPlacement()
+                }
+            }
+        }
+
         // Sets up an example renderer using our HelloARRenderer.
         SampleRender(view.surfaceView, renderer, assets)
 

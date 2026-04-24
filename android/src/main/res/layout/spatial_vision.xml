@@ -1,31 +1,37 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-xmlns:tools="http://schemas.android.com/tools"
-android:layout_width="match_parent"
-android:layout_height="match_parent"
-tools:context="com.wsp.plugins.spatialvision.helloar.HelloArActivity">
-
-<Button
-    android:id="@+id/close_button"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:backgroundTint="@color/colorAccent"
-    android:text="@string/close"/>
-
-<android.opengl.GLSurfaceView
-    android:id="@+id/surfaceview"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"/>
+    android:layout_height="match_parent"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    tools:context="com.wsp.plugins.spatialvision.helloar.HelloArActivity">
 
-<ImageButton
-    android:id="@+id/settings_button"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:layout_alignParentEnd="true"
-    android:layout_alignParentTop="true"
-    android:layout_margin="25dp"
-    android:contentDescription="TODO"
-    android:src="@drawable/ic_settings"
-    android:background="@android:color/transparent"/>
+    <Button
+        android:id="@+id/close_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:backgroundTint="@color/colorAccent"
+        android:text="@string/close"/>
+
+    <android.opengl.GLSurfaceView
+        android:id="@+id/surfaceview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+    <com.wsp.plugins.spatialvision.helloar.ReticleOverlayView
+        android:id="@+id/reticle_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="visible" />
+
+    <ImageButton
+        android:id="@+id/settings_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentTop="true"
+        android:layout_margin="25dp"
+        android:contentDescription="TODO"
+        android:src="@drawable/ic_settings"
+        android:background="@android:color/transparent"/>
 
     <SeekBar
         android:id="@+id/radius_slider"
@@ -39,42 +45,270 @@ tools:context="com.wsp.plugins.spatialvision.helloar.HelloArActivity">
         android:progress="1"
         android:background="@android:color/transparent"/>
 
-<!-- Distance Overlay -->
-<LinearLayout
-    android:id="@+id/distance_container"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:layout_alignParentBottom="true"
-    android:layout_centerHorizontal="true"
-    android:layout_margin="16dp"
-    android:padding="10dp"
-    android:background="#66000000">
+    <!-- Anchor Control Panel -->
+    <LinearLayout
+        android:id="@+id/anchor_control_panel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="20dp"
+        android:orientation="horizontal"
+        android:background="@drawable/anchor_panel_background"
+        android:padding="12dp">
 
-<!--    <TextView-->
-<!--        android:id="@+id/distance_between_objects"-->
-<!--        android:text="@string/obj1_to_obj2"-->
-<!--        android:textColor="#FFFFFF"-->
-<!--        android:textSize="16sp"-->
-<!--        android:layout_height="wrap_content"-->
-<!--        android:layout_width="wrap_content"/>-->
+        <!-- Start Point Button -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginEnd="20dp">
 
-<!--    <TextView-->
-<!--        android:id="@+id/radius"-->
-<!--        android:text="@string/radius_of_pipe"-->
-<!--        android:textColor="#FFFFFF"-->
-<!--        android:textSize="16sp"-->
-<!--        android:layout_height="wrap_content"-->
-<!--        android:layout_width="wrap_content"/>-->
-    <ImageButton
-        android:id="@+id/btn_capture"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
+            <ImageButton
+                android:id="@+id/btn_start_point"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/anchor_button_background"
+                android:src="@drawable/ic_start_point"
+                android:contentDescription="Start Point"
+                app:tint="@android:color/white"
+                android:padding="12dp"/>
+
+            <TextView
+                android:id="@+id/start_point_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Start"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+        <!-- End Point Button -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginEnd="20dp">
+
+            <ImageButton
+                android:id="@+id/btn_end_point"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/anchor_button_background"
+                android:src="@drawable/ic_end_point"
+                android:contentDescription="End Point"
+                app:tint="@android:color/white"
+                android:padding="12dp"/>
+
+            <TextView
+                android:id="@+id/end_point_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="End"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+        <!-- Reset Button -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginEnd="20dp">
+
+            <ImageButton
+                android:id="@+id/btn_reset"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/anchor_button_background"
+                android:src="@drawable/ic_reset"
+                android:contentDescription="Reset"
+                app:tint="@android:color/white"
+                android:padding="10dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Reset"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+        <!-- Mode Toggle (Auto/Manual) -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginEnd="20dp">
+
+            <ImageButton
+                android:id="@+id/btn_toggle_mode"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/anchor_button_background"
+                android:src="@drawable/ic_auto_mode"
+                android:contentDescription="Toggle Mode"
+                app:tint="@android:color/white"
+                android:padding="10dp"/>
+
+            <TextView
+                android:id="@+id/mode_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Auto"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+        <!-- Capture Button -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btn_capture"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/capture_button_background"
+                android:src="@android:drawable/ic_menu_camera"
+                android:contentDescription="Capture"
+                app:tint="@android:color/white"
+                android:padding="12dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Capture"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Distance Overlay -->
+    <LinearLayout
+        android:id="@+id/distance_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_above="@id/anchor_control_panel"
+        android:layout_centerHorizontal="true"
         android:layout_margin="16dp"
-        android:background="@android:color/transparent"
-        android:contentDescription="Capture"
-        android:src="@android:drawable/ic_menu_camera"/>
+        android:padding="10dp"
+        android:background="#CC000000"
+        android:visibility="gone">
 
-</LinearLayout>
+        <TextView
+            android:id="@+id/distance_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0.00 m"
+            android:textColor="#4CAF50"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:gravity="center"/>
+
+        <TextView
+            android:id="@+id/distance_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Distance between points"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:gravity="center"/>
+
+    </LinearLayout>
 
 </RelativeLayout>
+
+<!--<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"-->
+<!--xmlns:tools="http://schemas.android.com/tools"-->
+<!--android:layout_width="match_parent"-->
+<!--android:layout_height="match_parent"-->
+<!--tools:context="com.wsp.plugins.spatialvision.helloar.HelloArActivity">-->
+
+<!--<Button-->
+<!--    android:id="@+id/close_button"-->
+<!--    android:layout_width="wrap_content"-->
+<!--    android:layout_height="wrap_content"-->
+<!--    android:backgroundTint="@color/colorAccent"-->
+<!--    android:text="@string/close"/>-->
+
+<!--<android.opengl.GLSurfaceView-->
+<!--    android:id="@+id/surfaceview"-->
+<!--    android:layout_width="match_parent"-->
+<!--    android:layout_height="match_parent"/>-->
+
+<!--<ImageButton-->
+<!--    android:id="@+id/settings_button"-->
+<!--    android:layout_width="wrap_content"-->
+<!--    android:layout_height="wrap_content"-->
+<!--    android:layout_alignParentEnd="true"-->
+<!--    android:layout_alignParentTop="true"-->
+<!--    android:layout_margin="25dp"-->
+<!--    android:contentDescription="TODO"-->
+<!--    android:src="@drawable/ic_settings"-->
+<!--    android:background="@android:color/transparent"/>-->
+
+<!--    <SeekBar-->
+<!--        android:id="@+id/radius_slider"-->
+<!--        android:layout_width="150dp"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_alignParentEnd="true"-->
+<!--        android:layout_below="@id/settings_button"-->
+<!--        android:layout_marginTop="10dp"-->
+<!--        android:layout_marginEnd="20dp"-->
+<!--        android:max="50"-->
+<!--        android:progress="1"-->
+<!--        android:background="@android:color/transparent"/>-->
+
+<!--&lt;!&ndash; Distance Overlay &ndash;&gt;-->
+<!--<LinearLayout-->
+<!--    android:id="@+id/distance_container"-->
+<!--    android:layout_width="wrap_content"-->
+<!--    android:layout_height="wrap_content"-->
+<!--    android:orientation="vertical"-->
+<!--    android:layout_alignParentBottom="true"-->
+<!--    android:layout_centerHorizontal="true"-->
+<!--    android:layout_margin="16dp"-->
+<!--    android:padding="10dp"-->
+<!--    android:background="#66000000">-->
+
+<!--&lt;!&ndash;    <TextView&ndash;&gt;-->
+<!--&lt;!&ndash;        android:id="@+id/distance_between_objects"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:text="@string/obj1_to_obj2"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:textColor="#FFFFFF"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:textSize="16sp"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:layout_height="wrap_content"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:layout_width="wrap_content"/>&ndash;&gt;-->
+
+<!--&lt;!&ndash;    <TextView&ndash;&gt;-->
+<!--&lt;!&ndash;        android:id="@+id/radius"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:text="@string/radius_of_pipe"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:textColor="#FFFFFF"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:textSize="16sp"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:layout_height="wrap_content"&ndash;&gt;-->
+<!--&lt;!&ndash;        android:layout_width="wrap_content"/>&ndash;&gt;-->
+<!--    <ImageButton-->
+<!--        android:id="@+id/btn_capture"-->
+<!--        android:layout_width="36dp"-->
+<!--        android:layout_height="36dp"-->
+<!--        android:layout_margin="16dp"-->
+<!--        android:background="@android:color/transparent"-->
+<!--        android:contentDescription="Capture"-->
+<!--        android:src="@android:drawable/ic_menu_camera"/>-->
+
+<!--</LinearLayout>-->
+
+<!--</RelativeLayout>-->

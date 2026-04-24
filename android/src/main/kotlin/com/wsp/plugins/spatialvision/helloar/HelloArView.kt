@@ -19,6 +19,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.res.Resources
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.opengl.GLSurfaceView
 import android.provider.MediaStore
 import android.view.View
@@ -33,6 +34,7 @@ import com.wsp.plugins.spatialvision.common.helpers.SnackbarHelper
 import com.wsp.plugins.spatialvision.common.helpers.TapHelper
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.LinearLayout
 
 /** Contains UI elements for Hello AR. */
 class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
@@ -44,7 +46,23 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
 
 //  val pipeRadius = root.findViewById<TextView>( R.id.radius)
   val captureBtn = root.findViewById<ImageButton>(R.id.btn_capture)
+
+  // New UI Elements
+  val btnStartPoint = root.findViewById<ImageButton>(R.id.btn_start_point)
+  val btnEndPoint = root.findViewById<ImageButton>(R.id.btn_end_point)
+  val btnReset = root.findViewById<ImageButton>(R.id.btn_reset)
+  val btnToggleMode = root.findViewById<ImageButton>(R.id.btn_toggle_mode)
+  val distanceContainer = root.findViewById<LinearLayout>(R.id.distance_container)
+  val distanceValue = root.findViewById<TextView>(R.id.distance_value)
+  val startPointStatus = root.findViewById<TextView>(R.id.start_point_status)
+  val endPointStatus = root.findViewById<TextView>(R.id.end_point_status)
+  val modeText = root.findViewById<TextView>(R.id.mode_text)
   var showCardLabel = false
+  var isAutoMode = true
+
+  private var isStartPointPlaced = false
+  private var isEndPointPlaced = false
+
   val settingsButton =
     root.findViewById<ImageButton>(R.id.settings_button).apply {
       setOnClickListener { v ->
@@ -77,6 +95,109 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   val snackbarHelper = SnackbarHelper()
   val tapHelper = TapHelper(activity).also { surfaceView.setOnTouchListener(it) }
 //  surfaceView.setOnTouchListener(dragHelper)
+
+  // Callback interface for anchor operations
+  interface AnchorUICallbacks {
+    fun onPlaceStartPoint()
+    fun onPlaceEndPoint()
+    fun onResetAnchors()
+    fun onToggleMode(isAutoMode: Boolean)
+  }
+
+  var callbacks: AnchorUICallbacks? = null
+
+  init {
+    setupButtonListeners()
+    updateButtonStates()
+    updateModeUI()
+  }
+
+  private fun setupButtonListeners() {
+    btnStartPoint.setOnClickListener {
+      if (!isStartPointPlaced) {
+        callbacks?.onPlaceStartPoint()
+      } else {
+        snackbarHelper.showMessage(activity, "Start point already placed!")
+      }
+    }
+
+    btnEndPoint.setOnClickListener {
+      if (!isEndPointPlaced && isStartPointPlaced) {
+        callbacks?.onPlaceEndPoint()
+      } else if (!isStartPointPlaced) {
+        snackbarHelper.showMessage(activity, "Please place start point first!")
+      } else {
+        snackbarHelper.showMessage(activity, "End point already placed!")
+      }
+    }
+
+    btnReset.setOnClickListener {
+      callbacks?.onResetAnchors()
+    }
+
+    btnToggleMode.setOnClickListener {
+      isAutoMode = !isAutoMode
+      updateModeUI()
+      callbacks?.onToggleMode(isAutoMode)
+
+      val modeMessage = if (isAutoMode) "Auto mode enabled" else "Manual mode enabled"
+      snackbarHelper.showMessage(activity, modeMessage)
+    }
+  }
+
+  private fun updateModeUI() {
+    if (isAutoMode) {
+      btnToggleMode.setImageResource(R.drawable.ic_auto_mode)
+      modeText.text = "Auto"
+      btnToggleMode.setColorFilter(Color.parseColor("#4CAF50"))
+    } else {
+      btnToggleMode.setImageResource(R.drawable.ic_manual_mode)
+      modeText.text = "Manual"
+      btnToggleMode.setColorFilter(Color.parseColor("#FF9800"))
+    }
+  }
+
+  fun updateAnchorStatus(startPlaced: Boolean, endPlaced: Boolean) {
+    isStartPointPlaced = startPlaced
+    isEndPointPlaced = endPlaced
+    updateButtonStates()
+  }
+
+  private fun updateButtonStates() {
+    // Update start point button
+    btnStartPoint.isEnabled = !isStartPointPlaced
+    btnStartPoint.alpha = if (isStartPointPlaced) 0.5f else 1.0f
+    startPointStatus.text = if (isStartPointPlaced) "Start ✓" else "Start"
+    startPointStatus.setTextColor(if (isStartPointPlaced) Color.parseColor("#4CAF50") else Color.WHITE)
+
+    // Update end point button
+    btnEndPoint.isEnabled = isStartPointPlaced && !isEndPointPlaced
+    btnEndPoint.alpha = if (!isStartPointPlaced || isEndPointPlaced) 0.5f else 1.0f
+    endPointStatus.text = if (isEndPointPlaced) "End ✓" else "End"
+    endPointStatus.setTextColor(if (isEndPointPlaced) Color.parseColor("#F44336") else Color.WHITE)
+
+    // Show/hide distance container
+    distanceContainer.visibility = if (isStartPointPlaced && isEndPointPlaced) View.VISIBLE else View.GONE
+  }
+
+  fun updateDistance(distanceMeters: Float) {
+    distanceValue.text = String.format("%.3f m", distanceMeters)
+
+    // Color code based on distance
+    val color = when {
+      distanceMeters < 1.0f -> Color.parseColor("#FF9800") // Orange for < 1m
+      distanceMeters < 5.0f -> Color.parseColor("#4CAF50") // Green for 1-5m
+      else -> Color.parseColor("#F44336") // Red for > 5m
+    }
+    distanceValue.setTextColor(color)
+  }
+
+  fun resetUI() {
+    isStartPointPlaced = false
+    isEndPointPlaced = false
+    updateButtonStates()
+    distanceContainer.visibility = View.GONE
+  }
 
   override fun onResume(owner: LifecycleOwner) {
     surfaceView.onResume()

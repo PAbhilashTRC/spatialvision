@@ -1,7 +1,5 @@
 package com.wsp.plugins.spatialvision.helloar
 
-//import com.wsp.plugins.spatialvision.common.samplerender.arcore.PlaneRenderer
-//import com.wsp.plugins.spatialvision.GeoSpatial
 import android.annotation.SuppressLint
 import android.opengl.GLES30
 import android.opengl.Matrix
@@ -80,6 +78,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         val CUBEMAP_RESOLUTION = 16
         val CUBEMAP_NUMBER_OF_IMPORTANCE_SAMPLES = 32
+        // New constants for continuous ray casting
+//        private const val PLACEMENT_DELAY_MS = 500L // Delay between automatic placements
+        private const val MIN_DISTANCE_TO_EXISTING_ANCHOR = 0.2f // Minimum distance to existing anchors in meters
     }
 
     lateinit var render: SampleRender
@@ -124,6 +125,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
     var depthConfidence: Int? = null;
 
     private var cylinder: Cylinder? = null
+    private var ring: Ring? = null
 
     val modelViewProjectionMatrix = FloatArray(16) // projection x view x model
 
@@ -148,6 +150,25 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     private var viewportWidth = 1
     private var viewportHeight = 1
+
+    // New variables for continuous ray casting
+    private var currentReticlePose: Pose? = null
+    private var isSurfaceDetected = false
+    private var lastPlacementTime = 0L
+    private var autoAnchor: Anchor? = null
+    private var isAutoPlacementEnabled = true
+    private var previewAnchor: WrappedAnchor? = null
+
+    // Track if we've placed the first two anchors automatically
+    private var autoPlacedCount = 0
+    private val maxAutoAnchors = 2
+    private val maxAnchors = 2
+
+    // Replace the 3D ring with canvas overlay
+    private lateinit var reticleOverlay: ReticleOverlayView
+
+    // Track valid surface for better UX
+    private var isValidSurface = false
 
     override fun onResume(owner: LifecycleOwner) {
         displayRotationHelper.onResume()
@@ -244,8 +265,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     Texture.ColorFormat.LINEAR
                 )
 //            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn.obj")
-//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring4.obj")
-            virtualObjectMesh = Mesh.createFromAsset(render, "models/pole.obj")
+            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring4.obj")
+//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pole.obj")
             virtualObjectShader =
                 Shader.createFromAssets(
                     render,
@@ -257,10 +278,18 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     .setTexture("u_RoughnessMetallicAmbientOcclusionTexture", virtualObjectPbrTexture)
                     .setTexture("u_Cubemap", cubemapFilter.filteredCubemapTexture)
                     .setTexture("u_DfgTexture", dfgTexture)
+//            ring = Ring().also{
+//                it.onSurfaceCreated(render)
+//            }
+
+            // Initialize reticle overlay
+            reticleOverlay = activity.findViewById(R.id.reticle_overlay)
+            reticleOverlay.showReticle(true)
 
             cylinder = Cylinder().also{
                 it.onSurfaceCreated(render)
             }
+
             labelRenderer = LabelRender().also {
                 it.onSurfaceCreated(render)
             }
@@ -269,6 +298,27 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     captureHighRes = true
                 }
             }
+
+            activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+
+                @SuppressLint("SetTextI18n")
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val minRadius = 0.01f   // 1 cm
+                    val maxRadius = 0.5f    // 50 cm
+
+                    val t = progress / 100f
+                    val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
+                    val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
+//                activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
+//                activity.view.slider_value.text = "Slider Value : $progress"
+//                val radius = progress / 1000f  // scale factor
+                    cylinder?.setRadius(radiusMeters)
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
         } catch (e: IOException) {
             Log.e(TAG, "Failed to read a required asset file", e)
             showError("Failed to read a required asset file: $e")
@@ -343,6 +393,12 @@ class HelloArRenderer(val activity: HelloArActivity) :
             }
         }
 
+        // ========== NEW: CONTINUOUS RAY CASTING ==========
+        // Perform continuous hit-test from screen center
+        if (camera.trackingState == TrackingState.TRACKING) {
+            performContinuousCenterHitTest(frame)
+        }
+
         // Handle one tap per frame.
         handleTap(frame, camera)
         handleDrag(frame, camera)
@@ -415,9 +471,21 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // Update lighting parameters in the shader
         updateLightEstimation(frame.lightEstimate, viewMatrix)
+//        drawReticle(render, viewMatrix, projectionMatrix, virtualSceneFramebuffer)
+
+        // Update the overlay with current detection status on UI thread
+        activity.runOnUiThread {
+            if (wrappedAnchors.size < maxAnchors) {
+                reticleOverlay.showReticle(true)
+                reticleOverlay.updateSurfaceDetection(isSurfaceDetected, isValidSurface)
+            } else {
+                reticleOverlay.showReticle(false)
+            }
+        }
 
         // Visualize anchors created by touch.
         render.clear(virtualSceneFramebuffer, 0f, 0f, 0f, 0f)
+
         var obj1Pos: FloatArray? = null
         var obj2Pos: FloatArray? = null
 
@@ -448,27 +516,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
             if (obj1Pos == null) obj1Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
             else if (obj2Pos == null) obj2Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
         }
-
-        activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-
-            @SuppressLint("SetTextI18n")
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val minRadius = 0.01f   // 1 cm
-                val maxRadius = 0.5f    // 50 cm
-
-                val t = progress / 100f
-                val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
-                val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
-//                activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
-//                activity.view.slider_value.text = "Slider Value : $progress"
-//                val radius = progress / 1000f  // scale factor
-                cylinder?.setRadius(radiusMeters)
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
 
         // --- Draw line between first 2 anchors ---
         if (obj1Pos != null && obj2Pos != null) {
@@ -657,6 +704,14 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
             wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable, false))
 
+            // Update auto-placement counter
+            autoPlacedCount = wrappedAnchors.size
+
+            // Disable auto-placement if we have both anchors
+            if (wrappedAnchors.size >= maxAutoAnchors) {
+                isAutoPlacementEnabled = false
+            }
+
             activity.runOnUiThread {
                 activity.view.showOcclusionDialogIfNeeded()
             }
@@ -723,6 +778,40 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * NEW METHOD: Reset auto-placement state
+     * Call this when you want to start a new measurement
+     */
+    fun resetAutoPlacement() {
+        // Clear all anchors
+        for (wrappedAnchor in wrappedAnchors) {
+            wrappedAnchor.anchor.detach()
+        }
+        wrappedAnchors.clear()
+
+        // Reset state
+        autoPlacedCount = 0
+        isAutoPlacementEnabled = true
+        previewAnchor?.anchor?.detach()
+        previewAnchor = null
+        currentReticlePose = null
+        isSurfaceDetected = false
+        lastPlacementTime = 0L
+
+        Log.d(TAG, "Auto-placement reset")
+    }
+
+    /**
+     * NEW METHOD: Toggle auto-placement on/off
+     */
+    fun setAutoPlacementEnabled(enabled: Boolean) {
+        isAutoPlacementEnabled = enabled
+        if (!enabled) {
+            previewAnchor?.anchor?.detach()
+            previewAnchor = null
         }
     }
 
@@ -911,6 +1000,200 @@ class HelloArRenderer(val activity: HelloArActivity) :
         val y = ((1f - ndcY) / 2f) * screenHeight
 
         return floatArrayOf(x, y)
+    }
+
+    // In your HelloArRenderer class, update the placement methods:
+
+    /**
+     * Place start point with visual feedback
+     */
+    fun placeStartPointManually() {
+        if (wrappedAnchors.size >= maxAnchors) {
+            resetAnchors()
+        }
+
+        if (currentReticlePose != null && isSurfaceDetected) {
+            // Show placing feedback
+            activity.runOnUiThread {
+                reticleOverlay.showPlacingFeedback()
+            }
+
+            val anchor = session?.createAnchor(currentReticlePose!!)
+            anchor?.let {
+                wrappedAnchors.add(WrappedAnchor(it, null, false))
+
+                activity.runOnUiThread {
+                    activity.view.snackbarHelper.showMessage(activity, "✓ Start point placed")
+                    reticleOverlay.showPlacedFeedback()
+                }
+
+                // Update UI button states
+                activity.runOnUiThread {
+                    activity.view.updateAnchorStatus(
+                        startPlaced = wrappedAnchors.size >= 1,
+                        endPlaced = wrappedAnchors.size >= 2
+                    )
+                }
+
+                // Show reticle again for second point if needed
+                if (wrappedAnchors.size == 1) {
+                    activity.runOnUiThread {
+                        reticleOverlay.showReticle(true)
+                        reticleOverlay.updateSurfaceDetection(true, true)
+                    }
+                }
+
+                // If we now have 2 anchors, hide reticle
+                if (wrappedAnchors.size >= maxAnchors) {
+                    activity.runOnUiThread {
+                        reticleOverlay.showReticle(false)
+                    }
+                }
+            }
+        } else {
+            activity.runOnUiThread {
+                activity.view.snackbarHelper.showMessage(activity, "Move phone to detect surface")
+                // Flash red to indicate no surface
+                reticleOverlay.updateSurfaceDetection(false, false)
+                reticleOverlay.postDelayed({
+                    reticleOverlay.updateSurfaceDetection(isSurfaceDetected, isValidSurface)
+                }, 300)
+            }
+        }
+    }
+
+    /**
+     * Place end point with visual feedback
+     */
+    fun placeEndPointManually() {
+        if (currentReticlePose != null && isSurfaceDetected && wrappedAnchors.size == 1) {
+            // Show placing feedback
+            activity.runOnUiThread {
+                reticleOverlay.showPlacingFeedback()
+            }
+
+            val anchor = session?.createAnchor(currentReticlePose!!)
+            anchor?.let {
+                wrappedAnchors.add(WrappedAnchor(it, null, false))
+
+                activity.runOnUiThread {
+                    activity.view.snackbarHelper.showMessage(activity, "✓ End point placed! Distance calculated")
+                    reticleOverlay.showPlacedFeedback()
+                }
+
+                // Hide reticle since we have both anchors
+                activity.runOnUiThread {
+                    reticleOverlay.showReticle(false)
+                }
+            }
+        } else {
+            activity.runOnUiThread {
+                val message = when {
+                    wrappedAnchors.size != 1 -> "Place start point first"
+                    else -> "Move to a valid surface"
+                }
+                activity.view.snackbarHelper.showMessage(activity, message)
+
+                // Flash feedback
+                reticleOverlay.updateSurfaceDetection(false, false)
+                reticleOverlay.postDelayed({
+                    reticleOverlay.updateSurfaceDetection(isSurfaceDetected, isValidSurface)
+                }, 300)
+            }
+        }
+    }
+
+    /**
+     * Reset with reticle visible again
+     */
+    fun resetAnchors() {
+        for (anchor in wrappedAnchors) {
+            anchor.anchor.detach()
+        }
+        wrappedAnchors.clear()
+        autoPlacedCount = 0
+        isAutoPlacementEnabled = true
+
+        activity.runOnUiThread {
+            reticleOverlay.resetAndShow()
+            reticleOverlay.showReticle(true)
+            reticleOverlay.updateSurfaceDetection(false, false)
+            activity.view.snackbarHelper.showMessage(activity, "Measurement reset")
+            activity.view.updateAnchorStatus(startPlaced = false, endPlaced = false)
+        }
+    }
+
+    /**
+     * Update performContinuousCenterHitTest to work with new reticle
+     */
+    private fun performContinuousCenterHitTest(frame: Frame) {
+        val view = activity.view.surfaceView
+        val centerX = view.width / 2f
+        val centerY = view.height / 2f
+
+        val hitResults = frame.hitTest(centerX, centerY)
+
+        var bestHit: com.google.ar.core.HitResult? = null
+        var surfaceValid = false
+
+        for (hit in hitResults) {
+            when (hit.trackable) {
+                is Plane -> {
+                    val plane = hit.trackable as Plane
+                    if (plane.trackingState == TrackingState.TRACKING &&
+                        (plane.type == Plane.Type.HORIZONTAL_UPWARD_FACING ||
+                                plane.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING) &&
+                        plane.extentX > 0.1f && plane.extentZ > 0.1f) {
+                        bestHit = hit
+                        surfaceValid = true
+                        break
+                    }
+                }
+                is DepthPoint -> {
+                    val depthPoint = hit.trackable as DepthPoint
+                    if (depthPoint.trackingState == TrackingState.TRACKING) {
+                        bestHit = hit
+                        surfaceValid = true
+                        break
+                    }
+                }
+            }
+        }
+
+        if (bestHit != null && surfaceValid && wrappedAnchors.size < maxAnchors) {
+            if (!isSurfaceDetected) {
+                isSurfaceDetected = true
+                isValidSurface = true
+
+                activity.runOnUiThread {
+                    reticleOverlay.updateSurfaceDetection(true, true)
+                    if (wrappedAnchors.isEmpty()) {
+                        activity.view.snackbarHelper.showMessage(activity,
+                            "Surface ready - tap or press button to place")
+                    }
+                }
+            }
+            currentReticlePose = bestHit.hitPose
+        } else {
+            if (isSurfaceDetected) {
+                isSurfaceDetected = false
+                isValidSurface = false
+
+                activity.runOnUiThread {
+                    reticleOverlay.updateSurfaceDetection(false, false)
+                }
+            }
+            currentReticlePose = null
+        }
+    }
+
+
+    fun enableContinuousPlacement() {
+        isAutoPlacementEnabled = true
+    }
+
+    fun disableContinuousPlacement() {
+        isAutoPlacementEnabled = false
     }
 
 
