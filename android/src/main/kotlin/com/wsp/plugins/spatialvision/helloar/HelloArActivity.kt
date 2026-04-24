@@ -96,10 +96,10 @@ class HelloArActivity : AppCompatActivity() {
 
         // 👇 Add this (find button from layout)
         val closeButton: Button = findViewById<Button>(R.id.close_button)
-        distanceObjToObj = findViewById(R.id.distance_between_objects)
+//        distanceObjToObj = findViewById(R.id.distance_between_objects)
 //        distanceCamToObj1 = findViewById(R.id.distance_cam_obj1)
 //        distanceCamToObj2 = findViewById(R.id.distance_cam_obj2)
-        depthConfidence = findViewById(R.id.depth_confidence)
+//        depthConfidence = findViewById(R.id.depth_confidence)
 
         closeButton.setOnClickListener {
             sendResultAndFinish()
@@ -134,16 +134,16 @@ class HelloArActivity : AppCompatActivity() {
     @SuppressLint("SetTextI18n")
     fun updateDistances(objToObj: Float?, camToObj1: Float?, camToObj2: Float?, confidence: Int?) {
         runOnUiThread {
-            distanceObjToObj.text = "Obj1 ↔ Obj2: ${format(objToObj)} m"
+//            distanceObjToObj.text = "Obj1 ↔ Obj2: ${format(objToObj)} m"
 //            distanceCamToObj1.text = "Camera → Obj1: ${format(camToObj1)} m"
 //            distanceCamToObj2.text = "Camera → Obj2: ${format(camToObj2)} m"
 //            depthConfidence.text = "Confidence: $confidence"
-            if (confidence != null && confidence > 0) {
-                depthConfidence.visibility = View.VISIBLE
-                depthConfidence.text = "Confidence: $confidence"
-            } else {
-                depthConfidence.visibility = View.GONE
-            }
+//            if (confidence != null && confidence > 0) {
+//                depthConfidence.visibility = View.VISIBLE
+//                depthConfidence.text = "Confidence: $confidence"
+//            } else {
+//                depthConfidence.visibility = View.GONE
+//            }
 
         }
     }

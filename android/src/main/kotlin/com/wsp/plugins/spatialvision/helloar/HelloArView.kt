@@ -15,8 +15,12 @@
  */
 package com.wsp.plugins.spatialvision.helloar
 
+import android.content.ContentValues
+import android.content.Context
 import android.content.res.Resources
+import android.graphics.Bitmap
 import android.opengl.GLSurfaceView
+import android.provider.MediaStore
 import android.view.View
 import android.widget.ImageButton
 import android.widget.PopupMenu
@@ -36,9 +40,10 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   val surfaceView = root.findViewById<GLSurfaceView>(R.id.surfaceview)
 
   val slider = root.findViewById<SeekBar>(R.id.radius_slider)
-  val slider_value = root.findViewById<TextView>(R.id.slider_value)
+//  val slider_value = root.findViewById<TextView>(R.id.slider_value)
 
-  val pipeRadius = root.findViewById<TextView>( R.id.radius)
+//  val pipeRadius = root.findViewById<TextView>( R.id.radius)
+  val captureBtn = root.findViewById<ImageButton>(R.id.btn_capture)
   var showCardLabel = false
   val settingsButton =
     root.findViewById<ImageButton>(R.id.settings_button).apply {
@@ -79,6 +84,25 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
 
   override fun onPause(owner: LifecycleOwner) {
     surfaceView.onPause()
+  }
+
+  fun saveBitmap(context: Context, bitmap: Bitmap) {
+    val filename = "AR_${System.currentTimeMillis()}.png"
+
+    val resolver = context.contentResolver
+    val values = ContentValues().apply {
+      put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+      put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+      put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ARCaptures")
+    }
+
+    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+
+    uri?.let {
+      resolver.openOutputStream(it)?.use { stream ->
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+      }
+    }
   }
 
   /**

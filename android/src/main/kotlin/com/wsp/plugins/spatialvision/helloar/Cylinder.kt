@@ -90,7 +90,6 @@ class Cylinder {
         cylinderShader.setVec3("uAttenuation", floatArrayOf(1f, 0.14f, 0.07f))
 
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
-
         render.draw(cylinderMesh, cylinderShader)
 
     }

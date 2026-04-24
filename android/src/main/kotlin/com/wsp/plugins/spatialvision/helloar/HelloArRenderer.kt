@@ -143,6 +143,12 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     private var lastUpdateTime = 0L
 
+    @Volatile
+    var captureHighRes = false
+
+    private var viewportWidth = 1
+    private var viewportHeight = 1
+
     override fun onResume(owner: LifecycleOwner) {
         displayRotationHelper.onResume()
         hasSetTextureNames = false
@@ -258,6 +264,11 @@ class HelloArRenderer(val activity: HelloArActivity) :
             labelRenderer = LabelRender().also {
                 it.onSurfaceCreated(render)
             }
+            activity.view.captureBtn.setOnClickListener {
+                activity.view.surfaceView.queueEvent {
+                    captureHighRes = true
+                }
+            }
         } catch (e: IOException) {
             Log.e(TAG, "Failed to read a required asset file", e)
             showError("Failed to read a required asset file: $e")
@@ -267,6 +278,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
     override fun onSurfaceChanged(render: SampleRender, width: Int, height: Int) {
         displayRotationHelper.onSurfaceChanged(width, height)
         virtualSceneFramebuffer.resize(width, height)
+        viewportWidth = width
+        viewportHeight = height
     }
 
     override fun onDrawFrame(render: SampleRender) {
@@ -446,8 +459,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 val t = progress / 100f
                 val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
                 val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
-                activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
-                activity.view.slider_value.text = "Slider Value : $progress"
+//                activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
+//                activity.view.slider_value.text = "Slider Value : $progress"
 //                val radius = progress / 1000f  // scale factor
                 cylinder?.setRadius(radiusMeters)
             }
@@ -516,6 +529,24 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // Compose the virtual scene with the background.
         backgroundRenderer.drawVirtualScene(render, virtualSceneFramebuffer, Z_NEAR, Z_FAR)
+
+        // Simple direct capture (RECOMMENDED for your use case)
+        if (captureHighRes) {
+            captureHighRes = false
+
+            try {
+                // Give GPU a moment to finish
+                GLES30.glFinish()
+
+                val simpleCapture = ARCaptureHelper()
+                val bitmap = simpleCapture.captureScreen(viewportWidth, viewportHeight)
+                activity.view.saveBitmap(context = this.activity, bitmap = bitmap)
+            } catch (e: Exception) {
+                Log.e("Capture", "Failed to capture: ${e.message}")
+            }
+
+            virtualSceneFramebuffer.resize(viewportWidth, viewportHeight)
+        }
     }
 
     /** Checks if we detected at least one plane. */
@@ -822,7 +853,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     fun findSelectedAnchor(frame: Frame, tap: MotionEvent): WrappedAnchor? {
 
-        val thresholdPx = 100f
+        val thresholdPx = 500f
 
         val screenWidth = activity.view.surfaceView.width
         val screenHeight = activity.view.surfaceView.height
