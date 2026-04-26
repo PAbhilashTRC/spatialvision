@@ -89,31 +89,7 @@ class HelloArActivity : AppCompatActivity() {
         lifecycle.addObserver(renderer)
 
         // Setup UI callbacks
-        view.callbacks = object : HelloArView.AnchorUICallbacks {
-            override fun onPlaceStartPoint() {
-                renderer.placeStartPointManually()
-            }
-
-            override fun onPlaceEndPoint() {
-                renderer.placeEndPointManually()
-            }
-
-            override fun onResetAnchors() {
-                renderer.resetAnchors()
-                view.resetUI()
-            }
-
-            override fun onToggleMode(isAutoMode: Boolean) {
-                renderer.setAutoPlacementEnabled(isAutoMode)
-                if (!isAutoMode) {
-                    // In manual mode, disable continuous placement
-                    renderer.disableContinuousPlacement()
-                } else {
-                    // Re-enable auto placement
-                    renderer.enableContinuousPlacement()
-                }
-            }
-        }
+        setupCallbacks()
 
         // Sets up an example renderer using our HelloARRenderer.
         SampleRender(view.surfaceView, renderer, assets)
@@ -133,6 +109,62 @@ class HelloArActivity : AppCompatActivity() {
         }
     }
 
+    // In HelloArActivity, update the callbacks setup:
+
+    private fun setupCallbacks() {
+        view.callbacks = object : HelloArView.MeasurementCallbacks {
+            override fun onAddPoint() {
+                renderer.addMeasurementPoint()
+            }
+
+            override fun onReset() {
+                renderer.resetMeasurements()
+                view.resetUI()
+            }
+
+            override fun onToggleMode(isAutoMode: Boolean) {
+                renderer.setAutoPlacementEnabled(isAutoMode)
+                val modeMessage = if (isAutoMode) "Auto mode: Points added automatically" else "Manual mode: Tap button to add points"
+                view.snackbarHelper.showMessage(this@HelloArActivity, modeMessage)
+            }
+
+            override fun onCapture() {
+                renderer.captureHighRes = true
+                view.snackbarHelper.showMessage(this@HelloArActivity, "Capturing screenshot...")
+            }
+
+            override fun onSettings() {
+                // Open settings dialog
+                showSettingsDialog()
+            }
+
+            override fun onClose() {
+                finish()
+            }
+        }
+    }
+
+    // Update the distance update method
+    fun updateMeasurementData(pointsCount: Int, measurementsCount: Int, totalDistance: Float, lastDistance: Float, lastMeasurementNumber: Int) {
+        runOnUiThread {
+            view.updateAddButtonState(pointsCount)
+            view.updateMeasurementStats(measurementsCount, totalDistance)
+            if (lastDistance > 0) {
+                view.updateLastMeasurement(lastDistance, lastMeasurementNumber)
+            }
+        }
+    }
+
+    private fun showSettingsDialog() {
+        // Implement your settings dialog here
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Settings")
+            .setMessage("Cylinder radius: Adjust using slider")
+            .setPositiveButton("OK") { _, _ -> }
+            .create()
+        dialog.show()
+    }
+
     // Configure the session, using Lighting Estimation, and Depth mode.
     fun configureSession(session: Session) {
         session.configure(
@@ -141,8 +173,8 @@ class HelloArActivity : AppCompatActivity() {
 
                 // Depth API is used if it is configured in Hello AR's settings.
                 depthMode =
-                    if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
-                        Config.DepthMode.AUTOMATIC
+                    if (session.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY)) {
+                        Config.DepthMode.RAW_DEPTH_ONLY
                     } else {
                         Config.DepthMode.DISABLED
                     }

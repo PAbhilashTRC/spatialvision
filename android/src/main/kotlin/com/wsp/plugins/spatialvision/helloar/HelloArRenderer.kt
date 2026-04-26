@@ -64,28 +64,16 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         private val Z_NEAR = 0.1f
         private val Z_FAR = 100f
-
-        // Assumed distance from the device camera to the surface on which user will try to place
-        // objects.
-        // This value affects the apparent scale of objects while the tracking method of the
-        // Instant Placement point is SCREENSPACE_WITH_APPROXIMATE_DISTANCE.
-        // Values in the [0.2, 2.0] meter range are a good choice for most AR experiences. Use lower
-        // values for AR experiences where users are expected to place objects on surfaces close to the
-        // camera. Use larger values for experiences where the user will likely be standing and trying
-        // to
-        // place an object on the ground or floor in front of them.
-        val APPROXIMATE_DISTANCE_METERS = 2.0f
-
         val CUBEMAP_RESOLUTION = 16
         val CUBEMAP_NUMBER_OF_IMPORTANCE_SAMPLES = 32
-        // New constants for continuous ray casting
-//        private const val PLACEMENT_DELAY_MS = 500L // Delay between automatic placements
-        private const val MIN_DISTANCE_TO_EXISTING_ANCHOR = 0.2f // Minimum distance to existing anchors in meters
+        private const val MAX_ANCHORS = 50  // Support up to 25 measurements
+        private const val MIN_DISTANCE_TO_EXISTING_ANCHOR = 0.05f // Minimum distance to existing anchors in meters
     }
 
     lateinit var render: SampleRender
 //    lateinit var planeRenderer: PlaneRenderer
     lateinit var backgroundRenderer: BackgroundRenderer
+    private val rawDepthManager = RawDepthPointCloudManager()
     lateinit var virtualSceneFramebuffer: Framebuffer
     var hasSetTextureNames = false
 
@@ -161,8 +149,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     // Track if we've placed the first two anchors automatically
     private var autoPlacedCount = 0
-    private val maxAutoAnchors = 2
-    private val maxAnchors = 2
+    private val maxAnchors = 50
 
     // Replace the 3D ring with canvas overlay
     private lateinit var reticleOverlay: ReticleOverlayView
@@ -486,13 +473,11 @@ class HelloArRenderer(val activity: HelloArActivity) :
         // Visualize anchors created by touch.
         render.clear(virtualSceneFramebuffer, 0f, 0f, 0f, 0f)
 
-        var obj1Pos: FloatArray? = null
-        var obj2Pos: FloatArray? = null
-
-        for ((anchor, trackable) in
-        wrappedAnchors.filter { it.anchor.trackingState == TrackingState.TRACKING }) {
-            // Get the current pose of an Anchor in world space. The Anchor pose is updated
-            // during calls to session.update() as ARCore refines its estimate of the world.
+//        var obj1Pos: FloatArray? = null
+//        var obj2Pos: FloatArray? = null
+        // Draw all anchor points
+        for (wrappedAnchor in wrappedAnchors.filter { it.anchor.trackingState == TrackingState.TRACKING }) {
+            val anchor = wrappedAnchor.anchor
             anchor.pose.toMatrix(modelMatrix, 0)
 
             // Calculate model/view/projection matrices
@@ -502,64 +487,72 @@ class HelloArRenderer(val activity: HelloArActivity) :
             // Update shader properties and draw
             virtualObjectShader.setMat4("u_ModelView", modelViewMatrix)
             virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix)
-            val texture =
-                if ((trackable as? InstantPlacementPoint)?.trackingMethod ==
-                    InstantPlacementPoint.TrackingMethod.SCREENSPACE_WITH_APPROXIMATE_DISTANCE
-                ) {
-                    virtualObjectAlbedoInstantPlacementTexture
-                } else {
-                    virtualObjectAlbedoTexture
-                }
+            val texture = if ((wrappedAnchor.trackable as? InstantPlacementPoint)?.trackingMethod ==
+                InstantPlacementPoint.TrackingMethod.SCREENSPACE_WITH_APPROXIMATE_DISTANCE
+            ) {
+                virtualObjectAlbedoInstantPlacementTexture
+            } else {
+                virtualObjectAlbedoTexture
+            }
             virtualObjectShader.setTexture("u_AlbedoTexture", texture)
             render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer)
-            // Store positions for line & distance
-            if (obj1Pos == null) obj1Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
-            else if (obj2Pos == null) obj2Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
         }
 
-        // --- Draw line between first 2 anchors ---
-        if (obj1Pos != null && obj2Pos != null) {
-            cylinder?.draw(
-                render,
-                obj1Pos,
-                obj2Pos,
-                viewMatrix,
-                projectionMatrix)
+    // --- Draw cylinders between every pair of anchors (0-1, 2-3, 4-5, etc.) ---
+        val trackingAnchors = wrappedAnchors.filter { it.anchor.trackingState == TrackingState.TRACKING }
+        val anchorPositions = trackingAnchors.map {
+            floatArrayOf(it.anchor.pose.tx(), it.anchor.pose.ty(), it.anchor.pose.tz())
+        }
 
-            // --- Distance updates ---
-            val distObjToObj = distance(obj1Pos, obj2Pos)
-            val distCamToObj1 = distance(cameraPos, obj1Pos)
-            val distCamToObj2 = distance(cameraPos, obj2Pos)
-            val midpoint = getMidPoint(obj1Pos, obj2Pos)
+    // Draw cylinders for each pair
+        for (i in 0 until anchorPositions.size - 1 step 2) {
+            if (i + 1 < anchorPositions.size) {
+                val startPos = anchorPositions[i]
+                val endPos = anchorPositions[i + 1]
 
-            val up = FloatArray(3)
-            cameraPose.getTransformedAxis(1, 1.0f, up, 0)
+                // Draw cylinder between this pair
+                cylinder?.draw(
+                    render,
+                    startPos,
+                    endPos,
+                    viewMatrix,
+                    projectionMatrix
+                )
 
-            midpoint[0] += up[0] * 0.05f
-            midpoint[1] += up[1] * 0.05f
-            midpoint[2] += up[2] * 0.05f
-            val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
-            val labelText = String.format("%.2f m", distObjToObj)
-            Matrix.multiplyMM(labelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
+                // Calculate and display measurement for this pair
+                val distance = distance(startPos, endPos)
+                val midpoint = getMidPoint(startPos, endPos)
 
-            // ---------------------------
-            // DRAW LABEL (SAFE PATH)
-            // ---------------------------
-            val obj1Formatted = obj1Pos.joinToString(", ") { "%.2f".format(it) }
-            val obj2Formatted = obj2Pos.joinToString(", ") { "%.2f".format(it) }
-            var confidence = ""
-            if(depthConfidence != null){
-                confidence = depthConfidence.toString()
-            }
-            val measureWithMetadata = ARLabelData(title ="Measuring Tool",
-                measurement = labelText,
-                sourceA = obj1Formatted,
-                sourceB = obj2Formatted,
-                confidence = confidence
-            )
+                val up = FloatArray(3)
+                cameraPose.getTransformedAxis(1, 1.0f, up, 0)
 
+                // Offset label above the line
+                midpoint[0] += up[0] * 0.05f
+                midpoint[1] += up[1] * 0.05f
+                midpoint[2] += up[2] * 0.05f
 
-            labelRenderer?.let { lr ->
+                val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
+                val measurementNumber = (i / 2) + 1
+                val labelText = String.format("#%d: %.2f m", measurementNumber, distance)
+
+                Matrix.multiplyMM(labelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
+
+                val obj1Formatted = startPos.joinToString(", ") { "%.2f".format(it) }
+                val obj2Formatted = endPos.joinToString(", ") { "%.2f".format(it) }
+                var confidence = ""
+                if(depthConfidence != null){
+                    confidence = depthConfidence.toString()
+                }
+
+                val measureWithMetadata = ARLabelData(
+                    title = "Measurement $measurementNumber",
+                    measurement = labelText,
+                    sourceA = obj1Formatted,
+                    sourceB = obj2Formatted,
+                    confidence = confidence
+                )
+
+                labelRenderer?.let { lr ->
                     lr.draw(
                         render = render,
                         viewProjectionMatrix = labelViewProjectionMatrix,
@@ -568,8 +561,11 @@ class HelloArRenderer(val activity: HelloArActivity) :
                         data = measureWithMetadata,
                         showCard = activity.view.showCardLabel
                     )
+                }
+
+                // Update UI with latest measurement
+                activity.updateDistances(distance, 0f, 0f, depthConfidence)
             }
-            activity.updateDistances(distObjToObj, distCamToObj1, distCamToObj2, depthConfidence)
         }
 
          // --- Compose virtual scene with background ---
@@ -675,45 +671,36 @@ class HelloArRenderer(val activity: HelloArActivity) :
             currentMode = InteractionMode.SELECTED
             return
         }
+        activity.view.surfaceView.queueEvent {
 
-        val createdAnchor = getStableDepthAnchor(frame, camera, tap)
 
-        val finalAnchor: Anchor?
-        var trackable: Trackable? = null
+            val createdAnchor = getStableDepthAnchor(frame, camera, tap)
 
-        if (createdAnchor != null) {
-            finalAnchor = createdAnchor
-        } else {
+            val finalAnchor: Anchor?
+            var trackable: Trackable? = null
 
-            val hit = frame.hitTest(tap.x, tap.y).firstOrNull {
-                it.trackable is DepthPoint ||
-                        it.trackable is Plane ||
-                        it.trackable is InstantPlacementPoint
+            if (createdAnchor != null) {
+                finalAnchor = createdAnchor
+            } else {
+
+                val hit = frame.hitTest(tap.x, tap.y).firstOrNull {
+                    it.trackable is DepthPoint ||
+                            it.trackable is Plane ||
+                            it.trackable is InstantPlacementPoint
+                }
+
+                finalAnchor = hit?.createAnchor()
+                trackable = hit?.trackable
             }
 
-            finalAnchor = hit?.createAnchor()
-            trackable = hit?.trackable
-        }
+            if (finalAnchor != null) {
 
-        if (finalAnchor != null) {
+                if (wrappedAnchors.size >= 2) {
+                    wrappedAnchors[0].anchor.detach()
+                    wrappedAnchors.removeAt(0)
+                }
 
-            if (wrappedAnchors.size >= 2) {
-                wrappedAnchors[0].anchor.detach()
-                wrappedAnchors.removeAt(0)
-            }
-
-            wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable, false))
-
-            // Update auto-placement counter
-            autoPlacedCount = wrappedAnchors.size
-
-            // Disable auto-placement if we have both anchors
-            if (wrappedAnchors.size >= maxAutoAnchors) {
-                isAutoPlacementEnabled = false
-            }
-
-            activity.runOnUiThread {
-                activity.view.showOcclusionDialogIfNeeded()
+                wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable, false))
             }
         }
     }
@@ -1002,188 +989,213 @@ class HelloArRenderer(val activity: HelloArActivity) :
         return floatArrayOf(x, y)
     }
 
-    // In your HelloArRenderer class, update the placement methods:
-
-    /**
-     * Place start point with visual feedback
-     */
-    fun placeStartPointManually() {
-        if (wrappedAnchors.size >= maxAnchors) {
-            resetAnchors()
-        }
-
-        if (currentReticlePose != null && isSurfaceDetected) {
-            // Show placing feedback
-            activity.runOnUiThread {
-                reticleOverlay.showPlacingFeedback()
+    // Simplified reset method
+    fun resetMeasurements() {
+        activity.view.surfaceView.queueEvent {
+            for (anchor in wrappedAnchors) {
+                anchor.anchor.detach()
             }
 
-            val anchor = session?.createAnchor(currentReticlePose!!)
-            anchor?.let {
-                wrappedAnchors.add(WrappedAnchor(it, null, false))
-
-                activity.runOnUiThread {
-                    activity.view.snackbarHelper.showMessage(activity, "✓ Start point placed")
-                    reticleOverlay.showPlacedFeedback()
-                }
-
-                // Update UI button states
-                activity.runOnUiThread {
-                    activity.view.updateAnchorStatus(
-                        startPlaced = wrappedAnchors.size >= 1,
-                        endPlaced = wrappedAnchors.size >= 2
-                    )
-                }
-
-                // Show reticle again for second point if needed
-                if (wrappedAnchors.size == 1) {
-                    activity.runOnUiThread {
-                        reticleOverlay.showReticle(true)
-                        reticleOverlay.updateSurfaceDetection(true, true)
-                    }
-                }
-
-                // If we now have 2 anchors, hide reticle
-                if (wrappedAnchors.size >= maxAnchors) {
-                    activity.runOnUiThread {
-                        reticleOverlay.showReticle(false)
-                    }
-                }
-            }
-        } else {
             activity.runOnUiThread {
-                activity.view.snackbarHelper.showMessage(activity, "Move phone to detect surface")
-                // Flash red to indicate no surface
+                wrappedAnchors.clear()
+                autoPlacedCount = 0
+                isAutoPlacementEnabled = true
+
+                reticleOverlay.resetAndShow()
+                reticleOverlay.showReticle(true)
                 reticleOverlay.updateSurfaceDetection(false, false)
-                reticleOverlay.postDelayed({
-                    reticleOverlay.updateSurfaceDetection(isSurfaceDetected, isValidSurface)
-                }, 300)
+
+                activity.view.snackbarHelper.showMessage(activity, "All points cleared")
+                activity.view.updateModeText(true) // Reset button text
             }
         }
     }
 
-    /**
-     * Place end point with visual feedback
-     */
-    fun placeEndPointManually() {
-        if (currentReticlePose != null && isSurfaceDetected && wrappedAnchors.size == 1) {
-            // Show placing feedback
-            activity.runOnUiThread {
-                reticleOverlay.showPlacingFeedback()
-            }
+    // In HelloArRenderer, add this method to report UI updates:
+    private fun updateUIWithMeasurementStats() {
+        val pointsCount = wrappedAnchors.filter { it.anchor.trackingState == TrackingState.TRACKING }.size
+        val measurementsCount = pointsCount / 2
 
-            val anchor = session?.createAnchor(currentReticlePose!!)
-            anchor?.let {
-                wrappedAnchors.add(WrappedAnchor(it, null, false))
+        var totalDistance = 0f
+        var lastDistance = 0f
+        var lastMeasurementNumber = 0
 
-                activity.runOnUiThread {
-                    activity.view.snackbarHelper.showMessage(activity, "✓ End point placed! Distance calculated")
-                    reticleOverlay.showPlacedFeedback()
-                }
+        val anchorPositions = wrappedAnchors.map {
+            floatArrayOf(it.anchor.pose.tx(), it.anchor.pose.ty(), it.anchor.pose.tz())
+        }
 
-                // Hide reticle since we have both anchors
-                activity.runOnUiThread {
-                    reticleOverlay.showReticle(false)
-                }
-            }
-        } else {
-            activity.runOnUiThread {
-                val message = when {
-                    wrappedAnchors.size != 1 -> "Place start point first"
-                    else -> "Move to a valid surface"
-                }
-                activity.view.snackbarHelper.showMessage(activity, message)
-
-                // Flash feedback
-                reticleOverlay.updateSurfaceDetection(false, false)
-                reticleOverlay.postDelayed({
-                    reticleOverlay.updateSurfaceDetection(isSurfaceDetected, isValidSurface)
-                }, 300)
+        for (i in 0 until anchorPositions.size - 1 step 2) {
+            if (i + 1 < anchorPositions.size) {
+                val distance = distance(anchorPositions[i], anchorPositions[i + 1])
+                totalDistance += distance
+                lastDistance = distance
+                lastMeasurementNumber = (i / 2) + 1
             }
         }
+
+        activity.updateMeasurementData(pointsCount, measurementsCount, totalDistance, lastDistance, lastMeasurementNumber)
     }
 
-    /**
-     * Reset with reticle visible again
-     */
-    fun resetAnchors() {
-        for (anchor in wrappedAnchors) {
-            anchor.anchor.detach()
-        }
-        wrappedAnchors.clear()
-        autoPlacedCount = 0
-        isAutoPlacementEnabled = true
+// In HelloArRenderer class, update the performContinuousCenterHitTest method:
 
-        activity.runOnUiThread {
-            reticleOverlay.resetAndShow()
-            reticleOverlay.showReticle(true)
-            reticleOverlay.updateSurfaceDetection(false, false)
-            activity.view.snackbarHelper.showMessage(activity, "Measurement reset")
-            activity.view.updateAnchorStatus(startPlaced = false, endPlaced = false)
-        }
-    }
-
-    /**
-     * Update performContinuousCenterHitTest to work with new reticle
-     */
     private fun performContinuousCenterHitTest(frame: Frame) {
         val view = activity.view.surfaceView
         val centerX = view.width / 2f
         val centerY = view.height / 2f
 
-        val hitResults = frame.hitTest(centerX, centerY)
+        // ENHANCED: Use improved depth point detection
+        val depthResult = rawDepthManager.findBestPointAtScreenCenter(
+            frame, centerX, centerY, frame.camera.pose
+        )
 
-        var bestHit: com.google.ar.core.HitResult? = null
-        var surfaceValid = false
-
-        for (hit in hitResults) {
-            when (hit.trackable) {
-                is Plane -> {
-                    val plane = hit.trackable as Plane
-                    if (plane.trackingState == TrackingState.TRACKING &&
-                        (plane.type == Plane.Type.HORIZONTAL_UPWARD_FACING ||
-                                plane.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING) &&
-                        plane.extentX > 0.1f && plane.extentZ > 0.1f) {
-                        bestHit = hit
-                        surfaceValid = true
-                        break
-                    }
-                }
-                is DepthPoint -> {
-                    val depthPoint = hit.trackable as DepthPoint
-                    if (depthPoint.trackingState == TrackingState.TRACKING) {
-                        bestHit = hit
-                        surfaceValid = true
-                        break
-                    }
-                }
-            }
-        }
-
-        if (bestHit != null && surfaceValid && wrappedAnchors.size < maxAnchors) {
+        if (depthResult != null && depthResult.confidence >= 0.6f) { // Higher confidence threshold
             if (!isSurfaceDetected) {
                 isSurfaceDetected = true
-                isValidSurface = true
+                isValidSurface = !depthResult.hasHole
+
+                val surfaceType = if (depthResult.hasHole) "edge surface" else "stable surface"
+                val confidencePercent = (depthResult.confidence * 100).toInt()
 
                 activity.runOnUiThread {
-                    reticleOverlay.updateSurfaceDetection(true, true)
+                    reticleOverlay.updateSurfaceDetection(true, isValidSurface)
                     if (wrappedAnchors.isEmpty()) {
-                        activity.view.snackbarHelper.showMessage(activity,
-                            "Surface ready - tap or press button to place")
+                        activity.view.snackbarHelper.showMessage(
+                            activity,
+                            "$surfaceType detected (${confidencePercent}% confidence) - tap to place"
+                        )
                     }
                 }
             }
-            currentReticlePose = bestHit.hitPose
-        } else {
-            if (isSurfaceDetected) {
-                isSurfaceDetected = false
-                isValidSurface = false
 
-                activity.runOnUiThread {
-                    reticleOverlay.updateSurfaceDetection(false, false)
+            // Apply stability check before using pose
+            if (isValidSurface && depthResult.confidence >= 0.7f) {
+                currentReticlePose = Pose(
+                    depthResult.worldPosition,
+                    floatArrayOf(0f, 0f, 0f, 1f)
+                )
+            } else {
+                currentReticlePose = null
+            }
+        } else {
+            // Enhanced fallback with plane detection
+            val hitResults = frame.hitTest(centerX, centerY)
+            val bestHit = hitResults.firstOrNull { hit ->
+                when (hit.trackable) {
+                    is Plane -> {
+                        val plane = hit.trackable as Plane
+                        plane.trackingState == TrackingState.TRACKING
+                    }
+                    else -> false
                 }
             }
-            currentReticlePose = null
+
+            if (bestHit != null) {
+                if (!isSurfaceDetected) {
+                    isSurfaceDetected = true
+                    isValidSurface = true
+                    activity.runOnUiThread {
+                        reticleOverlay.updateSurfaceDetection(true, true)
+                    }
+                }
+                currentReticlePose = bestHit.hitPose
+            } else {
+                if (isSurfaceDetected) {
+                    isSurfaceDetected = false
+                    isValidSurface = false
+                    activity.runOnUiThread {
+                        reticleOverlay.updateSurfaceDetection(false, false)
+                    }
+                }
+                currentReticlePose = null
+            }
+        }
+    }
+
+    // Update addMeasurementPoint method to use enhanced anchor creation:
+    fun addMeasurementPoint() {
+        if (wrappedAnchors.size >= MAX_ANCHORS) {
+            activity.runOnUiThread {
+                activity.view.snackbarHelper.showMessage(
+                    activity,
+                    "Maximum points ($MAX_ANCHORS) reached. Reset to add more."
+                )
+            }
+            return
+        }
+
+        if (currentReticlePose != null && isSurfaceDetected) {
+            activity.runOnUiThread {
+                reticleOverlay.showPlacingFeedback()
+            }
+
+            activity.view.surfaceView.queueEvent {
+                // ENHANCED: Try point cloud anchor creation first
+                var anchor = rawDepthManager.createAnchorFromPointCloud(
+                    frame = session?.update() ?: return@queueEvent,
+                    screenX = activity.view.surfaceView.width / 2f,
+                    screenY = activity.view.surfaceView.height / 2f,
+                    session = session ?: return@queueEvent
+                )
+
+                // Fall back to standard pose anchor
+                if (anchor == null) {
+                    anchor = session?.createAnchor(currentReticlePose!!)
+                }
+
+                anchor?.let {
+                    // Check distance to existing anchors before adding
+                    var tooClose = false
+                    for (existing in wrappedAnchors) {
+                        val existingPose = existing.anchor.pose
+//                        val dx = it.pose.tx() - existingPose.tx()
+//                        val dy = it.pose.ty() - existingPose.ty()
+//                        val dz = it.pose.tz() - existingPose.tz()
+//                        val distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+                        val distance = distance(floatArrayOf(it.pose.tx(), it.pose.ty(), it.pose.tz()),
+                            floatArrayOf(existingPose.tx(), existingPose.ty(), existingPose.tz()))
+
+                        if (distance < MIN_DISTANCE_TO_EXISTING_ANCHOR) {
+                            tooClose = true
+                            break
+                        }
+                    }
+
+                    if (!tooClose) {
+                        wrappedAnchors.add(WrappedAnchor(it, null, false))
+
+                        val pointNumber = wrappedAnchors.size
+                        activity.runOnUiThread {
+                            val message = if (pointNumber % 2 == 0) {
+                                "Point $pointNumber placed - Measurement ${pointNumber / 2} created!"
+                            } else {
+                                "Point $pointNumber placed - Select point ${pointNumber + 1} to complete measurement"
+                            }
+                            activity.view.snackbarHelper.showMessage(activity, message)
+                            reticleOverlay.showPlacedFeedback()
+                            activity.view.updateModeText(wrappedAnchors.size % 2 == 0)
+                        }
+                    } else {
+                        activity.runOnUiThread {
+                            activity.view.snackbarHelper.showMessage(activity, "Point too close to existing anchor")
+                        }
+                        it.detach()
+                    }
+                }
+            }
+        } else {
+            activity.runOnUiThread {
+                activity.view.snackbarHelper.showMessage(activity, "Move phone to detect stable surface")
+                reticleOverlay.updateSurfaceDetection(false, false)
+            }
+        }
+    }
+
+    // Add this helper method to get current frame (add to HelloArRenderer class):
+    private fun getCurrentFrame(): Frame? {
+        return try {
+            session?.update()
+        } catch (e: Exception) {
+            null
         }
     }
 

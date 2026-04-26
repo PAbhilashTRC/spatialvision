@@ -42,26 +42,42 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   val surfaceView = root.findViewById<GLSurfaceView>(R.id.surfaceview)
 
   val slider = root.findViewById<SeekBar>(R.id.radius_slider)
+  val reticleOverlay = root.findViewById<ReticleOverlayView>(R.id.reticle_overlay)
+
 //  val slider_value = root.findViewById<TextView>(R.id.slider_value)
 
 //  val pipeRadius = root.findViewById<TextView>( R.id.radius)
   val captureBtn = root.findViewById<ImageButton>(R.id.btn_capture)
 
-  // New UI Elements
-  val btnStartPoint = root.findViewById<ImageButton>(R.id.btn_start_point)
-  val btnEndPoint = root.findViewById<ImageButton>(R.id.btn_end_point)
+  // New simplified UI elements
+  val btnAddPoint = root.findViewById<ImageButton>(R.id.btn_add_point)
+  val btnAddText = root.findViewById<TextView>(R.id.btn_add_text)
   val btnReset = root.findViewById<ImageButton>(R.id.btn_reset)
   val btnToggleMode = root.findViewById<ImageButton>(R.id.btn_toggle_mode)
-  val distanceContainer = root.findViewById<LinearLayout>(R.id.distance_container)
-  val distanceValue = root.findViewById<TextView>(R.id.distance_value)
-  val startPointStatus = root.findViewById<TextView>(R.id.start_point_status)
-  val endPointStatus = root.findViewById<TextView>(R.id.end_point_status)
+  val btnCapture = root.findViewById<ImageButton>(R.id.btn_capture)
+  val btnSettings = root.findViewById<ImageButton>(R.id.settings_button)
+  val closeButton = root.findViewById<android.widget.Button>(R.id.close_button)
+
+  // Measurement info panel
+  val measurementInfoPanel = root.findViewById<LinearLayout>(R.id.measurement_info_panel)
+  val pointsCountText = root.findViewById<TextView>(R.id.points_count_text)
+  val measurementsCountText = root.findViewById<TextView>(R.id.measurements_count_text)
+  val totalDistanceText = root.findViewById<TextView>(R.id.total_distance_text)
+
+  // Last measurement panel
+  val lastMeasurementPanel = root.findViewById<LinearLayout>(R.id.last_measurement_panel)
+  val lastMeasurementText = root.findViewById<TextView>(R.id.last_measurement_text)
+
   val modeText = root.findViewById<TextView>(R.id.mode_text)
   var showCardLabel = false
   var isAutoMode = true
 
   private var isStartPointPlaced = false
   private var isEndPointPlaced = false
+
+  private var pointsCount = 0
+  private var measurementsCount = 0
+  private var totalDistance = 0f
 
   val settingsButton =
     root.findViewById<ImageButton>(R.id.settings_button).apply {
@@ -97,55 +113,53 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
 //  surfaceView.setOnTouchListener(dragHelper)
 
   // Callback interface for anchor operations
-  interface AnchorUICallbacks {
-    fun onPlaceStartPoint()
-    fun onPlaceEndPoint()
-    fun onResetAnchors()
+  // Callback interface
+  interface MeasurementCallbacks {
+    fun onAddPoint()
+    fun onReset()
     fun onToggleMode(isAutoMode: Boolean)
+    fun onCapture()
+    fun onSettings()
+    fun onClose()
   }
 
-  var callbacks: AnchorUICallbacks? = null
+  var callbacks: MeasurementCallbacks? = null
 
   init {
     setupButtonListeners()
-    updateButtonStates()
     updateModeUI()
   }
 
   private fun setupButtonListeners() {
-    btnStartPoint.setOnClickListener {
-      if (!isStartPointPlaced) {
-        callbacks?.onPlaceStartPoint()
-      } else {
-        snackbarHelper.showMessage(activity, "Start point already placed!")
-      }
-    }
-
-    btnEndPoint.setOnClickListener {
-      if (!isEndPointPlaced && isStartPointPlaced) {
-        callbacks?.onPlaceEndPoint()
-      } else if (!isStartPointPlaced) {
-        snackbarHelper.showMessage(activity, "Please place start point first!")
-      } else {
-        snackbarHelper.showMessage(activity, "End point already placed!")
-      }
+    btnAddPoint.setOnClickListener {
+      callbacks?.onAddPoint()
     }
 
     btnReset.setOnClickListener {
-      callbacks?.onResetAnchors()
+      callbacks?.onReset()
     }
 
     btnToggleMode.setOnClickListener {
-      isAutoMode = !isAutoMode
+      val isAutoMode = modeText.text != "Auto"
+      callbacks?.onToggleMode(!isAutoMode)
       updateModeUI()
-      callbacks?.onToggleMode(isAutoMode)
+    }
 
-      val modeMessage = if (isAutoMode) "Auto mode enabled" else "Manual mode enabled"
-      snackbarHelper.showMessage(activity, modeMessage)
+    btnCapture.setOnClickListener {
+      callbacks?.onCapture()
+    }
+
+    btnSettings.setOnClickListener {
+      callbacks?.onSettings()
+    }
+
+    closeButton.setOnClickListener {
+      callbacks?.onClose()
     }
   }
 
   private fun updateModeUI() {
+    val isAutoMode = modeText.text == "Auto" || modeText.text == "Auto" // Toggle logic
     if (isAutoMode) {
       btnToggleMode.setImageResource(R.drawable.ic_auto_mode)
       modeText.text = "Auto"
@@ -157,46 +171,88 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
     }
   }
 
-  fun updateAnchorStatus(startPlaced: Boolean, endPlaced: Boolean) {
-    isStartPointPlaced = startPlaced
-    isEndPointPlaced = endPlaced
-    updateButtonStates()
-  }
+  fun updateAddButtonState(pointsCount: Int) {
+    this.pointsCount = pointsCount
+    val isOdd = pointsCount % 2 == 1
 
-  private fun updateButtonStates() {
-    // Update start point button
-    btnStartPoint.isEnabled = !isStartPointPlaced
-    btnStartPoint.alpha = if (isStartPointPlaced) 0.5f else 1.0f
-    startPointStatus.text = if (isStartPointPlaced) "Start ✓" else "Start"
-    startPointStatus.setTextColor(if (isStartPointPlaced) Color.parseColor("#4CAF50") else Color.WHITE)
-
-    // Update end point button
-    btnEndPoint.isEnabled = isStartPointPlaced && !isEndPointPlaced
-    btnEndPoint.alpha = if (!isStartPointPlaced || isEndPointPlaced) 0.5f else 1.0f
-    endPointStatus.text = if (isEndPointPlaced) "End ✓" else "End"
-    endPointStatus.setTextColor(if (isEndPointPlaced) Color.parseColor("#F44336") else Color.WHITE)
-
-    // Show/hide distance container
-    distanceContainer.visibility = if (isStartPointPlaced && isEndPointPlaced) View.VISIBLE else View.GONE
-  }
-
-  fun updateDistance(distanceMeters: Float) {
-    distanceValue.text = String.format("%.3f m", distanceMeters)
-
-    // Color code based on distance
-    val color = when {
-      distanceMeters < 1.0f -> Color.parseColor("#FF9800") // Orange for < 1m
-      distanceMeters < 5.0f -> Color.parseColor("#4CAF50") // Green for 1-5m
-      else -> Color.parseColor("#F44336") // Red for > 5m
+    if (isOdd) {
+      // Waiting for second point to complete measurement
+      btnAddText.text = "Add End"
+      btnAddPoint.setBackgroundResource(R.drawable.add_button_background_end)
+      btnAddPoint.setColorFilter(Color.parseColor("#FF9800"))
+    } else {
+      // Ready for new measurement
+      btnAddText.text = "Add Start"
+      btnAddPoint.setBackgroundResource(R.drawable.add_button_background)
+      btnAddPoint.setColorFilter(Color.parseColor("#4CAF50"))
     }
-    distanceValue.setTextColor(color)
+
+    updatePointsDisplay()
+  }
+
+  fun updateMeasurementStats(measurementsCount: Int, totalDistance: Float) {
+    this.measurementsCount = measurementsCount
+    this.totalDistance = totalDistance
+    updateMeasurementsDisplay()
+  }
+
+  fun updateLastMeasurement(distance: Float, measurementNumber: Int) {
+    lastMeasurementPanel.visibility = View.VISIBLE
+    lastMeasurementText.text = String.format("#%d: %.2f m", measurementNumber, distance)
+
+    // Auto-hide after 3 seconds
+    lastMeasurementPanel.postDelayed({
+      if (lastMeasurementPanel.visibility == View.VISIBLE) {
+        lastMeasurementPanel.visibility = View.GONE
+      }
+    }, 3000)
+  }
+
+  private fun updatePointsDisplay() {
+    pointsCountText.text = "Points: $pointsCount / 50"
+
+    val measurementsFromPoints = pointsCount / 2
+    if (measurementsFromPoints != measurementsCount) {
+      measurementsCountText.text = "Measurements: $measurementsFromPoints"
+    } else {
+      measurementsCountText.text = "Measurements: $measurementsCount"
+    }
+
+    totalDistanceText.text = String.format("Total: %.2f m", totalDistance)
+
+    // Show/hide info panel based on points
+    measurementInfoPanel.visibility = if (pointsCount > 0) View.VISIBLE else View.GONE
+  }
+
+  private fun updateMeasurementsDisplay() {
+    measurementsCountText.text = "Measurements: $measurementsCount"
+    totalDistanceText.text = String.format("Total: %.2f m", totalDistance)
+    measurementInfoPanel.visibility = if (measurementsCount > 0 || pointsCount > 0) View.VISIBLE else View.GONE
   }
 
   fun resetUI() {
-    isStartPointPlaced = false
-    isEndPointPlaced = false
-    updateButtonStates()
-    distanceContainer.visibility = View.GONE
+    pointsCount = 0
+    measurementsCount = 0
+    totalDistance = 0f
+    updateAddButtonState(0)
+    updateMeasurementStats(0, 0f)
+    measurementInfoPanel.visibility = View.GONE
+    lastMeasurementPanel.visibility = View.GONE
+
+    snackbarHelper.showMessage(activity, "All measurements cleared")
+  }
+
+  fun showMessage(message: String, isError: Boolean = false) {
+    if (isError) {
+      snackbarHelper.showError(activity, message)
+    } else {
+      snackbarHelper.showMessage(activity, message)
+    }
+  }
+
+  fun updateModeText(isAutoMode: Boolean) {
+    modeText.text = if (isAutoMode) "Auto" else "Manual"
+    updateModeUI()
   }
 
   override fun onResume(owner: LifecycleOwner) {
