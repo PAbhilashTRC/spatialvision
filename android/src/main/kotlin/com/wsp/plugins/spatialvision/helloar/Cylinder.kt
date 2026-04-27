@@ -451,9 +451,7 @@ class Cylinder {
                 val nx = kotlin.math.cos(angle)
                 val nz = kotlin.math.sin(angle)
 
-                val up = floatArrayOf(0f, 1f, 0f)
-                val right = MathUtils.normalize(MathUtils.cross(direction, up))
-                val forward = MathUtils.normalize(MathUtils.cross(right, direction))
+                val (right, forward ) = computeBasis(direction);
 
                 val offset = floatArrayOf(
                     right[0] * nx * radius + forward[0] * nz * radius,
@@ -505,6 +503,30 @@ class Cylinder {
         }
 
         return Pair(vertices, indices)
+    }
+
+    fun generateBoltMeshAligned(
+        center: Vec3,
+        direction: FloatArray,
+        radius: Float,
+        height: Float
+    ): Pair<List<Vertex>, List<Int>> {
+
+        val half = height / 2f
+
+        val start = Vec3(
+            center.x - direction[0] * half,
+            center.y - direction[1] * half,
+            center.z - direction[2] * half
+        )
+
+        val end = Vec3(
+            center.x + direction[0] * half,
+            center.y + direction[1] * half,
+            center.z + direction[2] * half
+        )
+
+        return generateCylinderMeshWorld(start, end, radius, 12, true)
     }
 
     /**

@@ -39,6 +39,7 @@ class PoleWire {
         sag: Float,
         segments: Int = 20
     ): List<FloatArray> {
+        val gravity = floatArrayOf(0f, -1f, 0f)
 
         val points = mutableListOf<FloatArray>()
 
@@ -52,24 +53,6 @@ class PoleWire {
 
         // normalize direction
         for (i in 0..2) dir[i] /= length
-
-        // gravity direction (world Y)
-        val gravity = floatArrayOf(0f, -1f, 0f)
-//        val gravity = floatArrayOf(
-//            -cameraPose.yAxis[0],
-//            -cameraPose.yAxis[1],
-//            -cameraPose.yAxis[2]
-//        )
-
-        // perpendicular direction for sag plane
-        val side = MathUtils.cross(dir, gravity)
-        val sideLen = MathUtils.length(side)
-        if (sideLen < 0.0001f) {
-            // fallback if parallel
-            side[0] = 1f; side[1] = 0f; side[2] = 0f
-        } else {
-            for (i in 0..2) side[i] /= sideLen
-        }
 
         for (i in 0..segments) {
 
@@ -86,9 +69,9 @@ class PoleWire {
             val sagOffset = sag * sagFactor
 
             val final = floatArrayOf(
-                x + side[0] * sagOffset,
-                y - sagOffset,
-                z + side[2] * sagOffset
+                x + gravity[0] * sagOffset,
+                y + gravity[1] * sagOffset,
+                z + gravity[2] * sagOffset
             )
 
             points.add(final)
@@ -97,14 +80,15 @@ class PoleWire {
         return points
     }
 
-//    fun calculateWireLength(points: List<FloatArray>): Float {
-//        var total = 0f
-//
-//        for (i in 0 until points.size - 1) {
-//            total += MathUtils.distance(points[i], points[i + 1])
-//        }
-//
-//        return total
-//    }
+    fun computeWireLength(points: List<FloatArray>): Float {
+        var length = 0f
+
+        for (i in 0 until points.size - 1) {
+            length += MathUtils.distance(p1 = Vec3(points[i+1][0], y= points[i+1][1], z = points[i+1][2]),
+                p2 = Vec3(points[i][0], y= points[i][1], z = points[i][2]))
+        }
+
+        return length
+    }
 
 }

@@ -36,9 +36,9 @@ object MathUtils {
 
 
     fun distance(p1: Vec3, p2: Vec3): Float {
-        val dx = p1.x - p2.x
-        val dy = p1.y - p2.y
-        val dz = p1.z - p2.z
+        val dx = p2.x - p1.x
+        val dy = p2.y - p1.y
+        val dz = p2.z - p1.z
         return Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble()).toFloat()
     }
 

@@ -24,6 +24,7 @@ import com.google.ar.core.Trackable
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.NotYetAvailableException
+import com.wsp.plugins.spatialvision.common.helpers.ARLabelData
 import com.wsp.plugins.spatialvision.common.helpers.DisplayRotationHelper
 import com.wsp.plugins.spatialvision.common.helpers.TrackingStateHelper
 import com.wsp.plugins.spatialvision.common.samplerender.Framebuffer
@@ -470,9 +471,15 @@ class HelloArRenderer(val activity: HelloArActivity) :
         // 🔥 WIRES
         // ============================================================
         for (wire in sceneManager.wires) {
+
+            if (wire.points.size < 2) continue
+
+            var length = 0f
+
             for (i in 0 until wire.points.size - 1) {
                 val p1 = wire.points[i]
                 val p2 = wire.points[i + 1]
+
                 cylinder.draw(
                     render,
                     p1,
@@ -483,8 +490,31 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     radius = 0.008f,
                     asset = "wires"
                 )
+
+                length += MathUtils.distance(p1, p2)
             }
 
+            // ✅ SAFE midpoint
+            val wirePose = calculateMidLabelPose(wire.points)
+
+            val labelText = String.format("%.2f m", length)
+
+            val wireLabel = ARLabelData(
+                title = "Measuring Tool",
+                measurement = labelText,
+                sourceA = "",
+                sourceB = "",
+                confidence = "unknown"
+            )
+
+            labelRenderer.draw(
+                render = render,
+                viewProjectionMatrix = labelViewProjectionMatrix,
+                pose = wirePose,
+                cameraPose = camera.displayOrientedPose,
+                data = wireLabel,
+                showCard = activity.view.showCardLabel
+            )
         }
 
         // --- Compose final scene ---
@@ -591,6 +621,71 @@ class HelloArRenderer(val activity: HelloArActivity) :
         return labelPose
     }
 
+    fun calculateMidLabelPose(
+        wirePoints: List<Vec3>
+    ): Pose {
+        if (wirePoints.size < 2) {
+            return Pose(floatArrayOf(0f,0f,0f), floatArrayOf(0f,0f,0f,1f))
+        }
+        val mid = getWireMidPoint(wirePoints)
+
+        val up = floatArrayOf(0f, 1f, 0f) // world up
+
+        val offset = 0.05f
+
+        val labelPos = floatArrayOf(
+            mid.x + up[0] * offset,
+            mid.y + up[1] * offset,
+            mid.z + up[2] * offset
+        )
+
+        return Pose(labelPos, floatArrayOf(0f, 0f, 0f, 1f))
+    }
+
+    fun getWireMidPoint(points: List<Vec3>): Vec3 {
+
+        var totalLength = 0f
+        val segmentLengths = FloatArray(points.size - 1)
+
+        for (i in 0 until points.size - 1) {
+            val p1 = points[i]
+            val p2 = points[i + 1]
+
+            val dx = p2.x - p1.x
+            val dy = p2.y - p1.y
+            val dz = p2.z - p1.z
+
+            val len = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
+            segmentLengths[i] = len
+            totalLength += len
+        }
+
+        val half = totalLength / 2f
+        var acc = 0f
+
+        for (i in segmentLengths.indices) {
+            val next = acc + segmentLengths[i]
+
+            if (next >= half) {
+                val t = (half - acc) / segmentLengths[i]
+
+                val p1 = points[i]
+                val p2 = points[i + 1]
+
+                return Vec3(
+                    p1.x + (p2.x - p1.x) * t,
+                    p1.y + (p2.y - p1.y) * t,
+                    p1.z + (p2.z - p1.z) * t
+                )
+            }
+
+            acc = next
+        }
+
+        // fallback (center point if something goes wrong)
+        return points[points.size / 2]
+    }
+
     fun exportSceneGLB(): ByteArray {
         val exporter = GlbExporter()
 
@@ -678,6 +773,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 // Generate insulator and bolt for each phase
                 insulatorBasePoints.forEachIndexed { index, basePoint ->
                     val tipPoint = insulatorTipPoints[index]
+                    val insulatorDir = sceneManager.getInsulatorDirection(arm, poleDir, basePoint, index)
 
                     // Generate insulator mesh (from base to tip)
                     val (iVerts, iFaces) = cylinder.generateInsulatorMeshWithPoints(
@@ -695,8 +791,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     }
 
                     // Generate bolt at the attachment point (where insulator meets cross arm)
-                    val (bVerts, bFaces) = cylinder.generateBoltMeshWithPoints(
-                        basePoint,
+                    val (bVerts, bFaces) = cylinder.generateBoltMeshAligned(
+                        center = basePoint,
+                        direction = insulatorDir,
                         radius = 0.008f,
                         height = 0.012f
                     )
