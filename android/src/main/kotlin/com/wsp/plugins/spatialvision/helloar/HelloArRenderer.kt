@@ -120,7 +120,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     private var labelRenderer: LabelRender? = null
 
-    val isCard = activity.view.showCardLabel
+//    val isCard = activity.view.showCardLabel
     var depthConfidence: Int? = null;
 
     private var cylinder: Cylinder? = null
@@ -148,6 +148,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     private var viewportWidth = 1
     private var viewportHeight = 1
+
+    private val MAXANCHORS = 50
+    private lateinit var reticleOverlay: ReticleOverlayView
 
     override fun onResume(owner: LifecycleOwner) {
         displayRotationHelper.onResume()
@@ -244,8 +247,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     Texture.ColorFormat.LINEAR
                 )
 //            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn.obj")
-//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring4.obj")
-            virtualObjectMesh = Mesh.createFromAsset(render, "models/pole.obj")
+            virtualObjectMesh = Mesh.createFromAsset(render, "models/pawn_ring4.obj")
+//            virtualObjectMesh = Mesh.createFromAsset(render, "models/pole.obj")
             virtualObjectShader =
                 Shader.createFromAssets(
                     render,
@@ -269,6 +272,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     captureHighRes = true
                 }
             }
+
         } catch (e: IOException) {
             Log.e(TAG, "Failed to read a required asset file", e)
             showError("Failed to read a required asset file: $e")
@@ -329,10 +333,10 @@ class HelloArRenderer(val activity: HelloArActivity) :
         // BackgroundRenderer.updateDisplayGeometry must be called every frame to update the coordinates
         // used to draw the background camera image.
         backgroundRenderer.updateDisplayGeometry(frame)
-        val shouldGetDepthImage =
-            activity.depthSettings.useDepthForOcclusion() ||
-                    activity.depthSettings.depthColorVisualizationEnabled()
-        if (camera.trackingState == TrackingState.TRACKING && shouldGetDepthImage) {
+//        val shouldGetDepthImage =
+//            activity.depthSettings.useDepthForOcclusion() ||
+//                    activity.depthSettings.depthColorVisualizationEnabled()
+        if (camera.trackingState == TrackingState.TRACKING) {
             try {
                 val depthImage = frame.acquireDepthImage16Bits()
                 backgroundRenderer.updateCameraDepthTexture(depthImage)
@@ -346,7 +350,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
         // Handle one tap per frame.
         handleTap(frame, camera)
         handleDrag(frame, camera)
-
+        activity.view.btnAddPoint.setOnClickListener {
+            placeAnchorAtCenter(frame, camera)
+        }
         // Keep the screen unlocked while tracking, but allow it to lock when tracking stops.
         trackingStateHelper.updateKeepScreenOnFlag(camera.trackingState)
 
@@ -391,7 +397,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
         camera.getViewMatrix(viewMatrix, 0)
 
         val cameraPose = camera.pose
-        val cameraPos = floatArrayOf(cameraPose.tx(), cameraPose.ty(), cameraPose.tz())
+//        val cameraPos = floatArrayOf(cameraPose.tx(), cameraPose.ty(), cameraPose.tz())
 
         frame.acquirePointCloud().use { pointCloud ->
             if (pointCloud.timestamp > lastPointCloudTimestamp) {
@@ -418,13 +424,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // Visualize anchors created by touch.
         render.clear(virtualSceneFramebuffer, 0f, 0f, 0f, 0f)
-        var obj1Pos: FloatArray? = null
-        var obj2Pos: FloatArray? = null
 
-        for ((anchor, trackable) in
-        wrappedAnchors.filter { it.anchor.trackingState == TrackingState.TRACKING }) {
-            // Get the current pose of an Anchor in world space. The Anchor pose is updated
-            // during calls to session.update() as ARCore refines its estimate of the world.
+        for (wrappedAnchor in wrappedAnchors.filter { it.anchor.trackingState == TrackingState.TRACKING }) {
+            val anchor = wrappedAnchor.anchor
             anchor.pose.toMatrix(modelMatrix, 0)
 
             // Calculate model/view/projection matrices
@@ -434,98 +436,82 @@ class HelloArRenderer(val activity: HelloArActivity) :
             // Update shader properties and draw
             virtualObjectShader.setMat4("u_ModelView", modelViewMatrix)
             virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix)
-            val texture =
-                if ((trackable as? InstantPlacementPoint)?.trackingMethod ==
-                    InstantPlacementPoint.TrackingMethod.SCREENSPACE_WITH_APPROXIMATE_DISTANCE
-                ) {
-                    virtualObjectAlbedoInstantPlacementTexture
-                } else {
-                    virtualObjectAlbedoTexture
-                }
-            virtualObjectShader.setTexture("u_AlbedoTexture", texture)
+            virtualObjectShader.setTexture("u_AlbedoTexture", virtualObjectAlbedoTexture)
             render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer)
-            // Store positions for line & distance
-            if (obj1Pos == null) obj1Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
-            else if (obj2Pos == null) obj2Pos = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
+
+//            val anchorPositions = floatArrayOf(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
+
         }
 
-        activity.view.slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        // --- Draw cylinders between every pair of anchors (0-1, 2-3, 4-5, etc.) ---
+        val trackingAnchors = wrappedAnchors.filter { it.anchor.trackingState == TrackingState.TRACKING }
+        val anchorPositions = trackingAnchors.map {
+            floatArrayOf(it.anchor.pose.tx(), it.anchor.pose.ty(), it.anchor.pose.tz())
+        }
 
-            @SuppressLint("SetTextI18n")
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val minRadius = 0.01f   // 1 cm
-                val maxRadius = 0.5f    // 50 cm
+        // Draw cylinders for each pair
+        for (i in 0 until anchorPositions.size - 1 step 2) {
+            if (i + 1 < anchorPositions.size) {
+                val startPos = anchorPositions[i]
+                val endPos = anchorPositions[i + 1]
 
-                val t = progress / 100f
-                val radiusMeters = minRadius + t * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
-                val radiusCentimeters = minRadius + progress * (maxRadius - minRadius) // 0.01 + ( progress/100) * (0.5-0.01)
-//                activity.view.pipeRadius.text = "Radius: $radiusCentimeters cm"
-//                activity.view.slider_value.text = "Slider Value : $progress"
-//                val radius = progress / 1000f  // scale factor
-                cylinder?.setRadius(radiusMeters)
-            }
+                // Draw cylinder between this pair
+                cylinder?.draw(
+                    render,
+                    startPos,
+                    endPos,
+                    viewMatrix,
+                    projectionMatrix
+                )
 
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                // Calculate and display measurement for this pair
+                val distance = distance(startPos, endPos)
+                val midpoint = getMidPoint(startPos, endPos)
 
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
+                val up = FloatArray(3)
+                cameraPose.getTransformedAxis(1, 1.0f, up, 0)
 
-        // --- Draw line between first 2 anchors ---
-        if (obj1Pos != null && obj2Pos != null) {
-            cylinder?.draw(
-                render,
-                obj1Pos,
-                obj2Pos,
-                viewMatrix,
-                projectionMatrix)
+                // Offset label above the line
+                midpoint[0] += up[0] * 0.05f
+                midpoint[1] += up[1] * 0.05f
+                midpoint[2] += up[2] * 0.05f
 
-            // --- Distance updates ---
-            val distObjToObj = distance(obj1Pos, obj2Pos)
-            val distCamToObj1 = distance(cameraPos, obj1Pos)
-            val distCamToObj2 = distance(cameraPos, obj2Pos)
-            val midpoint = getMidPoint(obj1Pos, obj2Pos)
+                val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
+                val measurementNumber = (i / 2) + 1
+                val labelText = String.format("#%d: %.2f m", measurementNumber, distance)
 
-            val up = FloatArray(3)
-            cameraPose.getTransformedAxis(1, 1.0f, up, 0)
+                Matrix.multiplyMM(labelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
 
-            midpoint[0] += up[0] * 0.05f
-            midpoint[1] += up[1] * 0.05f
-            midpoint[2] += up[2] * 0.05f
-            val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
-            val labelText = String.format("%.2f m", distObjToObj)
-            Matrix.multiplyMM(labelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
+                val obj1Formatted = startPos.joinToString(", ") { "%.2f".format(it) }
+                val obj2Formatted = endPos.joinToString(", ") { "%.2f".format(it) }
+                var confidence = ""
+                if(depthConfidence != null){
+                    confidence = depthConfidence.toString()
+                }
 
-            // ---------------------------
-            // DRAW LABEL (SAFE PATH)
-            // ---------------------------
-            val obj1Formatted = obj1Pos.joinToString(", ") { "%.2f".format(it) }
-            val obj2Formatted = obj2Pos.joinToString(", ") { "%.2f".format(it) }
-            var confidence = ""
-            if(depthConfidence != null){
-                confidence = depthConfidence.toString()
-            }
-            val measureWithMetadata = ARLabelData(title ="Measuring Tool",
-                measurement = labelText,
-                sourceA = obj1Formatted,
-                sourceB = obj2Formatted,
-                confidence = confidence
-            )
+                val measureWithMetadata = ARLabelData(
+                    title = "Measurement $measurementNumber",
+                    measurement = labelText,
+                    sourceA = obj1Formatted,
+                    sourceB = obj2Formatted,
+                    confidence = confidence
+                )
 
-
-            labelRenderer?.let { lr ->
+                labelRenderer?.let { lr ->
                     lr.draw(
                         render = render,
                         viewProjectionMatrix = labelViewProjectionMatrix,
                         cameraPose = camera.displayOrientedPose,
                         pose = labelPose,
                         data = measureWithMetadata,
-                        showCard = activity.view.showCardLabel
+                        showCard = false
                     )
-            }
-            activity.updateDistances(distObjToObj, distCamToObj1, distCamToObj2, depthConfidence)
-        }
+                }
 
-         // --- Compose virtual scene with background ---
+                // Update UI with latest measurement
+//                activity.updateDistances(distance, 0f, 0f, depthConfidence)
+            }
+        }
 
         // Compose the virtual scene with the background.
         backgroundRenderer.drawVirtualScene(render, virtualSceneFramebuffer, Z_NEAR, Z_FAR)
@@ -613,7 +599,38 @@ class HelloArRenderer(val activity: HelloArActivity) :
         )
     }
 
-    // Handle only one tap per frame, as taps are usually low frequency compared to frame rate.
+    fun placeAnchorAtCenter(frame: Frame, camera: Camera) {
+        if (camera.trackingState != TrackingState.TRACKING) return
+
+        val centerX = viewportWidth / 2f
+        val centerY = viewportHeight / 2f
+        val createdAnchor = getStableDepthAnchor(frame, camera, Vec2(centerX,centerY))
+        val finalAnchor: Anchor?
+        var trackable: Trackable? = null
+
+        if (createdAnchor != null) {
+            finalAnchor = createdAnchor
+        } else {
+
+            val hit = frame.hitTest(centerX, centerY).firstOrNull {
+                it.trackable is DepthPoint ||
+                        it.trackable is Plane
+            }
+
+            finalAnchor = hit?.createAnchor()
+            trackable = hit?.trackable
+        }
+
+        if (finalAnchor != null) {
+            if (wrappedAnchors.size >= MAXANCHORS) {
+                wrappedAnchors[0].anchor.detach()
+                wrappedAnchors.removeAt(0)
+            }
+            wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable, false))
+        }
+    }
+
+        // Handle only one tap per frame, as taps are usually low frequency compared to frame rate.
     private fun handleTap(frame: Frame, camera: Camera) {
         if (camera.trackingState != TrackingState.TRACKING) return
 
@@ -628,9 +645,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
             currentMode = InteractionMode.SELECTED
             return
         }
-
-        val createdAnchor = getStableDepthAnchor(frame, camera, tap)
-
+        val createdAnchor = getStableDepthAnchor(frame, camera, Vec2(tap.x,tap.y))
         val finalAnchor: Anchor?
         var trackable: Trackable? = null
 
@@ -640,8 +655,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
             val hit = frame.hitTest(tap.x, tap.y).firstOrNull {
                 it.trackable is DepthPoint ||
-                        it.trackable is Plane ||
-                        it.trackable is InstantPlacementPoint
+                        it.trackable is Plane
             }
 
             finalAnchor = hit?.createAnchor()
@@ -650,7 +664,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         if (finalAnchor != null) {
 
-            if (wrappedAnchors.size >= 2) {
+            if (wrappedAnchors.size >= MAXANCHORS) {
                 wrappedAnchors[0].anchor.detach()
                 wrappedAnchors.removeAt(0)
             }
@@ -707,7 +721,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     if (System.currentTimeMillis() - lastUpdateTime < 50) return
 
                     val newAnchor =
-                        getStableDepthAnchor(frame, camera, event)
+                        getStableDepthAnchor(frame, camera, Vec2(event.x, event.y))
                             ?: frame.hitTest(event.x, event.y)
                                 .firstOrNull {
                                     it.trackable is DepthPoint ||
@@ -729,7 +743,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
     private fun getStableDepthAnchor(
         frame: Frame,
         camera: Camera,
-        tap: MotionEvent
+        tap: Vec2
     ): Anchor? {
 
         if (camera.trackingState != TrackingState.TRACKING) return null
@@ -913,6 +927,43 @@ class HelloArRenderer(val activity: HelloArActivity) :
         return floatArrayOf(x, y)
     }
 
+    // Update addMeasurementPoint method to use enhanced anchor creation:
+//    fun addMeasurementPoint() {
+//        if (wrappedAnchors.size >= MAXANCHORS) {
+//            activity.runOnUiThread {
+//                activity.view.snackbarHelper.showMessage(
+//                    activity,
+//                    "Maximum points ($MAXANCHORS) reached. Reset to add more."
+//                )
+//            }
+//            activity.view.surfaceView.queueEvent {
+//                val frame = session?.update()?: return@queueEvent
+//                val camera = frame.camera
+//                placeAnchorAtCenter(frame, camera)
+//            }
+//            return
+//        }
+//    }
+
+    // Simplified reset method
+    fun resetMeasurements() {
+        activity.view.surfaceView.queueEvent {
+            for (anchor in wrappedAnchors) {
+                anchor.anchor.detach()
+            }
+
+//            activity.runOnUiThread {
+//                wrappedAnchors.clear()
+//
+//                reticleOverlay.resetAndShow()
+//                reticleOverlay.showReticle(true)
+//                reticleOverlay.updateSurfaceDetection(false, false)
+//
+//                activity.view.snackbarHelper.showMessage(activity, "All points cleared")
+//            }
+        }
+    }
+
 
     private fun showError(errorMessage: String) =
         activity.view.snackbarHelper.showError(activity, errorMessage)
@@ -926,6 +977,11 @@ public data class WrappedAnchor(
     var anchor: Anchor,
     val trackable: Trackable?,
     var isSelected: Boolean = false
+)
+
+private data class Vec2(
+    var x: Float,
+    var y: Float
 )
 
 enum class InteractionMode {

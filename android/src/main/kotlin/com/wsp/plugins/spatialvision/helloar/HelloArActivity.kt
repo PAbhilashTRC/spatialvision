@@ -46,10 +46,10 @@ class HelloArActivity : AppCompatActivity() {
     val instantPlacementSettings = InstantPlacementSettings()
     val depthSettings = DepthSettings()
 
-    lateinit var distanceObjToObj: TextView
-    lateinit var distanceCamToObj1: TextView
-    lateinit var distanceCamToObj2: TextView
-    lateinit var depthConfidence: TextView
+//    lateinit var distanceObjToObj: TextView
+//    lateinit var distanceCamToObj1: TextView
+//    lateinit var distanceCamToObj2: TextView
+//    lateinit var depthConfidence: TextView
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,6 +87,7 @@ class HelloArActivity : AppCompatActivity() {
         // Set up the Hello AR renderer.
         renderer = HelloArRenderer(this)
         lifecycle.addObserver(renderer)
+        setupCallbacks()
 
         // Sets up an example renderer using our HelloARRenderer.
         SampleRender(view.surfaceView, renderer, assets)
@@ -103,6 +104,17 @@ class HelloArActivity : AppCompatActivity() {
 
         closeButton.setOnClickListener {
             sendResultAndFinish()
+        }
+    }
+
+    private fun setupCallbacks() {
+        view.callbacks = object : HelloArView.MeasurementCallbacks {
+            override fun onReset() {
+                renderer.
+                resetMeasurements()
+                view.resetUI()
+            }
+
         }
     }
 
