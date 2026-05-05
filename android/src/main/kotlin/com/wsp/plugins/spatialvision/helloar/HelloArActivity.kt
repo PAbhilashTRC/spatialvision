@@ -45,6 +45,8 @@ class HelloArActivity : AppCompatActivity() {
 
     val instantPlacementSettings = InstantPlacementSettings()
     val depthSettings = DepthSettings()
+    private var pendingResult = false
+
 
 //    lateinit var distanceObjToObj: TextView
 //    lateinit var distanceCamToObj1: TextView
@@ -105,6 +107,30 @@ class HelloArActivity : AppCompatActivity() {
         closeButton.setOnClickListener {
             sendResultAndFinish()
         }
+        view.doneBtn.setOnClickListener {
+            pendingResult = true
+            renderer.captureBtnStatus = false
+            view.snackbarHelper.showMessage(this, "Please wait while capturing image")
+            // 🔥 Trigger capture in GL thread
+            renderer.captureHighRes = true
+        }
+        renderer.onImageCaptured = { bitmap ->
+            runOnUiThread {
+                val uri = view.saveBitmap(this, bitmap)
+                view.snackbarHelper.showMessage(this, "image captured")
+                if(!renderer.captureBtnStatus){
+                    val resultIntent = Intent().apply {
+                        putExtra("status", 200)
+                        putExtra("imagePath", uri.toString())
+                        putExtra("measurements", ArrayList(view.measurements))
+                    }
+                    setResult(Activity.RESULT_OK, resultIntent)
+                    finish()
+                }else{
+                    renderer.captureBtnStatus = false
+                }
+            }
+        }
     }
 
     private fun setupCallbacks() {
@@ -113,6 +139,11 @@ class HelloArActivity : AppCompatActivity() {
                 renderer.
                 resetMeasurements()
                 view.resetUI()
+            }
+
+            override fun onUndo() {
+                renderer.undoMeasurements()
+                view.snackbarHelper.showMessage(view.activity, "Last measurement cleared")
             }
 
         }
@@ -160,37 +191,6 @@ class HelloArActivity : AppCompatActivity() {
         }
     }
 
-//    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-//        menuInflater.inflate(R.menu.settings_menu, menu)
-//
-//        val item = menu.findItem(R.id.action_toggle)
-//        val actionView = item.actionView ?: return true
-//
-//        val switch = actionView.findViewById<SwitchCompat>(R.id.toggle_switch)
-//        val label = actionView.findViewById<TextView>(R.id.switch_label)
-//
-//        // 🔥 IMPORTANT: ensure view is ready
-//        actionView.post {
-//
-//            // initial state
-//            switch.isChecked = view.showCardLabel
-//            label.text = if (view.showCardLabel) "Card" else "Simple"
-//
-//            // remove old listener
-//            switch.setOnCheckedChangeListener(null)
-//
-//            // attach listener
-//            switch.setOnCheckedChangeListener { _, isChecked ->
-//                view.showCardLabel = isChecked
-//                label.text = if (isChecked) "Card" else "Simple"
-//
-//                Log.d("TOGGLE", "showCardLabel = ${view.showCardLabel}")
-//            }
-//        }
-//
-//        return true
-//    }
-
     private fun format(value: Float?): String {
         return if (value == null) "--" else String.format("%.2f", value)
     }
@@ -224,9 +224,8 @@ class HelloArActivity : AppCompatActivity() {
 
     private fun sendResultAndFinish() {
         val resultIntent = Intent()
-
         // Send any data you want back
-        resultIntent.putExtra("resultKey", "AR Session Closed Successfully")
+        resultIntent.putExtra("status", 200);
 
         setResult(Activity.RESULT_OK, resultIntent)
         finish()

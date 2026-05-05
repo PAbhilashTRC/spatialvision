@@ -19,9 +19,12 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.res.Resources
 import android.graphics.Bitmap
+import android.net.Uri
 import android.opengl.GLSurfaceView
 import android.provider.MediaStore
 import android.view.View
+import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.PopupMenu
 import androidx.appcompat.app.AlertDialog
@@ -33,20 +36,24 @@ import com.wsp.plugins.spatialvision.common.helpers.SnackbarHelper
 import com.wsp.plugins.spatialvision.common.helpers.TapHelper
 import android.widget.SeekBar
 import android.widget.TextView
+import java.io.Serializable
 
 /** Contains UI elements for Hello AR. */
 class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   val root = View.inflate(activity, R.layout.spatial_vision, null)
   val surfaceView = root.findViewById<GLSurfaceView>(R.id.surfaceview)
 
-  val slider = root.findViewById<SeekBar>(R.id.radius_slider)
-  val reticleOverlay = root.findViewById<ReticleOverlayView>(R.id.reticle_overlay)
+//  val slider = root.findViewById<SeekBar>(R.id.radius_slider)
+//  val reticleOverlay = root.findViewById<ReticleOverlayView>(R.id.reticle_overlay)
 
 
   val captureBtn = root.findViewById<ImageButton>(R.id.btn_capture)
+  val doneBtn = root.findViewById<Button>(R.id.done_button)
   val btnAddPoint = root.findViewById<ImageButton>(R.id.btn_add_point)
+  val undoBtn = root.findViewById<ImageButton>(R.id.btn_undo)
   val btnReset = root.findViewById<ImageButton>(R.id.btn_reset)
-
+//  val measurementNames = mutableMapOf<Int, String>()
+  val measurements = mutableListOf<Measurement>()
   val session
     get() = activity.arCoreSessionHelper.session
 
@@ -65,6 +72,7 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   interface MeasurementCallbacks {
 //    fun onAddPoint()
     fun onReset()
+    fun onUndo()
   }
 
   var callbacks: MeasurementCallbacks? = null
@@ -74,16 +82,16 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   }
 
   private fun setupButtonListeners() {
-//    btnAddPoint.setOnClickListener {
-//      callbacks?.onAddPoint()
-//    }
-
     btnReset.setOnClickListener {
       callbacks?.onReset()
+      measurements.clear()
+    }
+    undoBtn.setOnClickListener {
+      callbacks?.onUndo()
     }
 
   }
-  fun saveBitmap(context: Context, bitmap: Bitmap) {
+  fun saveBitmap(context: Context, bitmap: Bitmap): Uri? {
     val filename = "AR_${System.currentTimeMillis()}.png"
 
     val resolver = context.contentResolver
@@ -92,14 +100,33 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
       put(MediaStore.Images.Media.MIME_TYPE, "image/png")
       put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ARCaptures")
     }
-
     val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-
     uri?.let {
       resolver.openOutputStream(it)?.use { stream ->
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
       }
     }
+    return uri
+  }
+
+  fun showMeasurementInputDialog(index: Int) {
+    val editText = EditText(this.activity)
+    editText.hint = "Enter measurement name"
+
+    AlertDialog.Builder(this.activity)
+      .setTitle("Measurement Name")
+      .setMessage("Give a name for this measurement")
+      .setView(editText)
+      .setCancelable(false)
+      .setPositiveButton("OK") { _, _ ->
+        val input = editText.text.toString().trim()
+        measurements[index].label =
+          if (input.isNotEmpty()) input else "Measurement ${index + 1}"
+      }
+      .setNegativeButton("Skip") { _, _ ->
+        measurements[index].label = "Measurement ${index + 1}"
+      }
+      .show()
   }
 
   /**
@@ -128,15 +155,14 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
   }
 
   fun resetUI() {
-//    pointsCount = 0
-//    measurementsCount = 0
-//    totalDistance = 0f
-//    updateAddButtonState(0)
-//    updateMeasurementStats(0, 0f)
-//    measurementInfoPanel.visibility = View.GONE
-//    lastMeasurementPanel.visibility = View.GONE
-
     snackbarHelper.showMessage(activity, "All measurements cleared")
   }
 
 }
+data class Measurement(
+    var label: String,
+    var distance: Float,
+    var unit: String = "m",
+    var startPoint: String = "",
+    var endPoint: String = ""
+): Serializable

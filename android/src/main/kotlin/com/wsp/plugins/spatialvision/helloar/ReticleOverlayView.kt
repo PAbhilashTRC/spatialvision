@@ -28,6 +28,8 @@ class ReticleOverlayView @JvmOverloads constructor(
     private var pulseAnimator: ValueAnimator? = null
     private var currentPulseScale = 1.0f
 
+    val innerRadiusPx = 22f // same as UI (no scale or apply scale if needed)
+
     enum class ReticleState {
         SEARCHING,    // No surface detected
         READY,        // Good surface detected
@@ -183,9 +185,9 @@ class ReticleOverlayView @JvmOverloads constructor(
         }
 
         // Very small ring sizes for precision
-        val innerRingRadius = 15f * scale
-        val outerRingRadius = 22f * scale
-        val dotRadius = 3f // Tiny center dot
+        val innerRingRadius = innerRadiusPx * scale
+        val outerRingRadius = 60.0f * scale
+        val dotRadius = 8.0f // Tiny center dot
 
         // Draw outer subtle ring (pulsing)
         if (reticleState != ReticleState.PLACED) {
@@ -269,5 +271,46 @@ class ReticleOverlayView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         pulseAnimator?.cancel()
+    }
+
+    fun generateSamplePoints(cx: Float, cy: Float, radius: Float): List<Vec2> {
+        val points = mutableListOf<Vec2>()
+
+        // Center
+        points.add(Vec2(cx, cy))
+
+        val offsets = listOf(
+            Pair(0f, -radius),  // top
+            Pair(0f, radius),   // bottom
+            Pair(-radius, 0f),  // left
+            Pair(radius, 0f),   // right
+
+            Pair(-radius * 0.7f, -radius * 0.7f), // top-left
+            Pair(radius * 0.7f, -radius * 0.7f),  // top-right
+            Pair(-radius * 0.7f, radius * 0.7f),  // bottom-left
+            Pair(radius * 0.7f, radius * 0.7f)    // bottom-right
+        )
+
+        offsets.forEach {
+            points.add(Vec2(cx + it.first, cy + it.second))
+        }
+
+        return points
+    }
+
+    fun generateDepthOffsets(radiusPx: Int, step: Int = 2): List<Pair<Int, Int>> {
+        val offsets = mutableListOf<Pair<Int, Int>>()
+
+        for (dx in -radiusPx..radiusPx step step) {
+            for (dy in -radiusPx..radiusPx step step) {
+
+                // Keep points inside circle (not square)
+                if (dx * dx + dy * dy <= radiusPx * radiusPx) {
+                    offsets.add(dx to dy)
+                }
+            }
+        }
+
+        return offsets
     }
 }

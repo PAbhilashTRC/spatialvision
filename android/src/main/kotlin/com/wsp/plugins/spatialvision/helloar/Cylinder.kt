@@ -17,7 +17,7 @@ class Cylinder {
     private lateinit var cylinderMesh: Mesh
     private lateinit var cylinderVertexBuffer: VertexBuffer
 
-    private var radius: Float = 0.01f
+    private var radius: Float = 0.008f
 
     fun onSurfaceCreated(render: SampleRender) {
         try{

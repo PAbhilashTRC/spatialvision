@@ -3,6 +3,7 @@ package com.wsp.plugins.spatialvision.helloar
 //import com.wsp.plugins.spatialvision.common.samplerender.arcore.PlaneRenderer
 //import com.wsp.plugins.spatialvision.GeoSpatial
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
 import android.opengl.GLES30
 import android.opengl.Matrix
 import android.util.Log
@@ -15,6 +16,7 @@ import com.google.ar.core.Camera
 import com.google.ar.core.Coordinates2d
 import com.google.ar.core.DepthPoint
 import com.google.ar.core.Frame
+import com.google.ar.core.HitResult
 import com.google.ar.core.InstantPlacementPoint
 import com.google.ar.core.LightEstimate
 import com.google.ar.core.Plane
@@ -146,11 +148,16 @@ class HelloArRenderer(val activity: HelloArActivity) :
     @Volatile
     var captureHighRes = false
 
+    var captureBtnStatus: Boolean = false
+
     private var viewportWidth = 1
     private var viewportHeight = 1
 
     private val MAXANCHORS = 50
-    private lateinit var reticleOverlay: ReticleOverlayView
+    private var reticleOverlay: ReticleOverlayView = ReticleOverlayView(activity)
+
+    private var pendingDialogIndex: Int? = null
+    var onImageCaptured: ((Bitmap) -> Unit)? = null
 
     override fun onResume(owner: LifecycleOwner) {
         displayRotationHelper.onResume()
@@ -268,6 +275,13 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 it.onSurfaceCreated(render)
             }
             activity.view.captureBtn.setOnClickListener {
+                captureBtnStatus = true
+                activity.view.surfaceView.queueEvent {
+                    captureHighRes = true
+                }
+            }
+            activity.view.doneBtn.setOnClickListener {
+                captureBtnStatus = false
                 activity.view.surfaceView.queueEvent {
                     captureHighRes = true
                 }
@@ -349,7 +363,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         // Handle one tap per frame.
         handleTap(frame, camera)
-        handleDrag(frame, camera)
+//        handleDrag(frame, camera)
         activity.view.btnAddPoint.setOnClickListener {
             placeAnchorAtCenter(frame, camera)
         }
@@ -477,8 +491,16 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 midpoint[2] += up[2] * 0.05f
 
                 val labelPose = Pose(midpoint, floatArrayOf(0f, 0f, 0f, 1f))
-                val measurementNumber = (i / 2) + 1
-                val labelText = String.format("#%d: %.2f m", measurementNumber, distance)
+//                val measurementNumber = (i / 2) + 1
+//                val labelText = String.format("#%d: %.2f m", measurementNumber, distance)
+                val measurementIndex = (i / 2)
+                if (measurementIndex >= this.activity.view.measurements.size) continue
+                val measurement = this.activity.view.measurements[measurementIndex]
+                measurement.distance = distance
+                if (measurement.label.isEmpty()) continue
+//                val userLabel = this.activity.view.measurements[measurementIndex] ?: "Measurement ${measurementIndex + 1}"
+
+                val labelText = String.format("%s %.2f m", measurement.label, measurement.distance)
 
                 Matrix.multiplyMM(labelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
 
@@ -490,7 +512,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 }
 
                 val measureWithMetadata = ARLabelData(
-                    title = "Measurement $measurementNumber",
+                    title = "Measurement ${measurement.label}",
                     measurement = labelText,
                     sourceA = obj1Formatted,
                     sourceB = obj2Formatted,
@@ -523,10 +545,12 @@ class HelloArRenderer(val activity: HelloArActivity) :
             try {
                 // Give GPU a moment to finish
                 GLES30.glFinish()
-
                 val simpleCapture = ARCaptureHelper()
                 val bitmap = simpleCapture.captureScreen(viewportWidth, viewportHeight)
-                activity.view.saveBitmap(context = this.activity, bitmap = bitmap)
+//                activity.view.saveBitmap(context = this.activity, bitmap = bitmap)
+                if(!captureBtnStatus){
+                    onImageCaptured?.invoke(bitmap)
+                }
             } catch (e: Exception) {
                 Log.e("Capture", "Failed to capture: ${e.message}")
             }
@@ -604,29 +628,62 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
         val centerX = viewportWidth / 2f
         val centerY = viewportHeight / 2f
-        val createdAnchor = getStableDepthAnchor(frame, camera, Vec2(centerX,centerY))
-        val finalAnchor: Anchor?
-        var trackable: Trackable? = null
+        val innerRadius = 22f
 
-        if (createdAnchor != null) {
-            finalAnchor = createdAnchor
-        } else {
+        val samplePoints = reticleOverlay.generateSamplePoints(centerX, centerY, innerRadius)
 
-            val hit = frame.hitTest(centerX, centerY).firstOrNull {
-                it.trackable is DepthPoint ||
-                        it.trackable is Plane
+        var bestAnchor: Anchor? = null
+        var bestTrackable: Trackable? = null
+        var minDistance = Float.MAX_VALUE
+
+        for (pt in samplePoints) {
+
+            // 1️⃣ Try depth-based anchor first
+            val depthAnchor = getStableDepthAnchor(frame, camera, Vec2(pt.x, pt.y))
+            if (depthAnchor != null) {
+                val pose = depthAnchor.pose
+                val dx = pose.tx()
+                val dy = pose.ty()
+                val dz = pose.tz()
+                val distance = Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble()).toFloat()
+
+                if (distance < minDistance) {
+                    minDistance = distance
+                    bestAnchor = depthAnchor
+                    bestTrackable = null
+                }
             }
 
-            finalAnchor = hit?.createAnchor()
-            trackable = hit?.trackable
+            // 2️⃣ Try hitTest (Plane / DepthPoint)
+            val hits = frame.hitTest(pt.x, pt.y)
+
+            for (hit in hits) {
+                if (hit.trackable is DepthPoint || hit.trackable is Plane) {
+
+                    val distance = hit.distance
+
+                    if (distance < minDistance) {
+                        minDistance = distance
+
+                        // ⚠️ Important: don't create anchor yet repeatedly
+                        bestAnchor?.detach() // cleanup previous candidate
+                        bestAnchor = hit.createAnchor()
+                        bestTrackable = hit.trackable
+                    }
+                }
+            }
         }
 
-        if (finalAnchor != null) {
+        // 3️⃣ Place only ONE best anchor
+        if (bestAnchor != null) {
+
             if (wrappedAnchors.size >= MAXANCHORS) {
                 wrappedAnchors[0].anchor.detach()
                 wrappedAnchors.removeAt(0)
             }
-            wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable, false))
+
+            wrappedAnchors.add(WrappedAnchor(bestAnchor, bestTrackable, false))
+            onAnchorPlaced()
         }
     }
 
@@ -670,10 +727,52 @@ class HelloArRenderer(val activity: HelloArActivity) :
             }
 
             wrappedAnchors.add(WrappedAnchor(finalAnchor, trackable, false))
+            onAnchorPlaced()
 
             activity.runOnUiThread {
                 activity.view.showOcclusionDialogIfNeeded()
             }
+        }
+    }
+
+//    fun onAnchorPlaced() {
+//        val totalAnchors = wrappedAnchors.size
+//
+//        if (totalAnchors % 2 == 0) {
+//            val measurementIndex = (totalAnchors / 2) - 1
+//            this.activity.view.showMeasurementInputDialog(measurementIndex)
+//        }
+//    }
+
+    fun onAnchorPlaced() {
+        val totalAnchors = wrappedAnchors.size
+
+        if (totalAnchors % 2 == 0) {
+            val measurementIndex = (totalAnchors / 2) - 1
+
+            // 👉 Ensure measurement object exists
+            if (measurementIndex >= activity.view.measurements.size) {
+                activity.view.measurements.add(
+                    Measurement(label = "", distance = 0f)
+                )
+            }
+
+            // ❗ DO NOT call dialog directly here
+            triggerMeasurementDialog(measurementIndex)
+        }
+    }
+
+    private fun triggerMeasurementDialog(index: Int) {
+        // Prevent multiple dialogs
+        if (pendingDialogIndex == index) return
+
+        pendingDialogIndex = index
+
+        activity.runOnUiThread {
+            activity.view.showMeasurementInputDialog(index)
+
+            // Reset after dialog interaction (important)
+            pendingDialogIndex = null
         }
     }
 
@@ -780,11 +879,13 @@ class HelloArRenderer(val activity: HelloArActivity) :
                     // ✅ Multi-sample (critical for stability)
                     val samples = mutableListOf<FloatArray>()
 
-                    val offsets = listOf(
-                        0 to 0,
-                        -2 to 0, 2 to 0,
-                        0 to -2, 0 to 2
-                    )
+//                    val offsets = listOf(
+//                        0 to 0,
+//                        -2 to 0, 2 to 0,
+//                        0 to -2, 0 to 2
+//                    )
+
+                    val offsets = reticleOverlay.generateDepthOffsets(reticleOverlay.innerRadiusPx.toInt())
 
                     val intrinsics = camera.textureIntrinsics
                     val fx = intrinsics.focalLength[0]
@@ -867,7 +968,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     fun findSelectedAnchor(frame: Frame, tap: MotionEvent): WrappedAnchor? {
 
-        val thresholdPx = 500f
+        val thresholdPx = 50f
 
         val screenWidth = activity.view.surfaceView.width
         val screenHeight = activity.view.surfaceView.height
@@ -952,15 +1053,39 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 anchor.anchor.detach()
             }
 
-//            activity.runOnUiThread {
-//                wrappedAnchors.clear()
-//
-//                reticleOverlay.resetAndShow()
-//                reticleOverlay.showReticle(true)
-//                reticleOverlay.updateSurfaceDetection(false, false)
-//
-//                activity.view.snackbarHelper.showMessage(activity, "All points cleared")
-//            }
+            activity.runOnUiThread {
+                wrappedAnchors.clear()
+                reticleOverlay.resetAndShow()
+                reticleOverlay.showReticle(true)
+                reticleOverlay.updateSurfaceDetection(false, false)
+
+                activity.view.snackbarHelper.showMessage(activity, "All points cleared")
+            }
+        }
+    }
+
+    fun undoMeasurements(){
+        activity.view.surfaceView.queueEvent {
+            if (activity.view.measurements.isNotEmpty()
+                && wrappedAnchors.isNotEmpty() && wrappedAnchors.size >=2 &&
+                wrappedAnchors.size % 2 == 0 ) {
+                val lastIndex = activity.view.measurements.lastIndex
+
+                activity.view.measurements.removeAt(lastIndex)
+                val anchorLastIndex = wrappedAnchors.lastIndex
+
+                wrappedAnchors[anchorLastIndex].anchor.detach()
+                wrappedAnchors[anchorLastIndex - 1].anchor.detach()
+
+                wrappedAnchors.removeAt(anchorLastIndex)
+                wrappedAnchors.removeAt(anchorLastIndex - 1)
+            }
+            else if(wrappedAnchors.size >= 1 && wrappedAnchors.size % 2 == 1){
+                val anchorLastIndex = wrappedAnchors.lastIndex
+                wrappedAnchors[anchorLastIndex].anchor.detach()
+                wrappedAnchors.removeAt(anchorLastIndex)
+            }
+            activity.view.surfaceView.requestRender()
         }
     }
 
@@ -979,7 +1104,7 @@ public data class WrappedAnchor(
     var isSelected: Boolean = false
 )
 
-private data class Vec2(
+data class Vec2(
     var x: Float,
     var y: Float
 )

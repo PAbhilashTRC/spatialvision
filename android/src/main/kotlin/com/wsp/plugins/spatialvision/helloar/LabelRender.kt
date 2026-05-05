@@ -14,7 +14,7 @@ import java.nio.FloatBuffer
 class LabelRender {
 
     companion object {
-        private const val SIZE = 0.2f  // ✔ AR world-space label size
+        private const val SIZE = 0.08f  // ✔ AR world-space label size
 
         // 2 triangles (stable, no strip issues)
         private val QUAD_COORDS: FloatBuffer =
