@@ -48,6 +48,18 @@ class SpatialVisionPlugin: Plugin() {
         }
     }
 
+    @PluginMethod
+    fun poleDigitalTwin(call: PluginCall) {
+        this.activeCall = call
+
+        if (getPermissionState("camera") != PermissionState.GRANTED) {
+            requestPermissionForAlias("camera", call, "cameraPermissionCallback")
+        } else {
+//            addFragmentContainer()
+            startArActivity(call)
+        }
+    }
+
     @PermissionCallback
     private fun cameraPermissionCallback(call: PluginCall) {
         if (getPermissionState("camera") == PermissionState.GRANTED) {
@@ -110,7 +122,7 @@ class SpatialVisionPlugin: Plugin() {
                 obj.put("endPoint", m.endPoint)
                 measurementsArray.put(obj)
             }
-            ret.put("ar_measurements", measurementsArray)
+            ret.put("measurements", measurementsArray)
             if(resultData == 200){
                 Toast.makeText(context, "Done", Toast.LENGTH_SHORT).show()
             }else{

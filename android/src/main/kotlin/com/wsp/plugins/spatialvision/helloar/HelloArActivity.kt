@@ -117,6 +117,7 @@ class HelloArActivity : AppCompatActivity() {
         renderer.onImageCaptured = { bitmap ->
             runOnUiThread {
                 val uri = view.saveBitmap(this, bitmap)
+//                val uri = view.saveBitmapToFile(this, bitmap)
                 view.snackbarHelper.showMessage(this, "image captured")
                 if(!renderer.captureBtnStatus){
                     val resultIntent = Intent().apply {

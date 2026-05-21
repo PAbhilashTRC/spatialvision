@@ -547,7 +547,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
                 GLES30.glFinish()
                 val simpleCapture = ARCaptureHelper()
                 val bitmap = simpleCapture.captureScreen(viewportWidth, viewportHeight)
-//                activity.view.saveBitmap(context = this.activity, bitmap = bitmap)
+                activity.view.saveBitmap(context = this.activity, bitmap = bitmap)
                 if(!captureBtnStatus){
                     onImageCaptured?.invoke(bitmap)
                 }

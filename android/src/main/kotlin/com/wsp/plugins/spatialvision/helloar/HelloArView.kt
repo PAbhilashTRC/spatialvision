@@ -36,6 +36,7 @@ import com.wsp.plugins.spatialvision.common.helpers.SnackbarHelper
 import com.wsp.plugins.spatialvision.common.helpers.TapHelper
 import android.widget.SeekBar
 import android.widget.TextView
+import java.io.File
 import java.io.Serializable
 
 /** Contains UI elements for Hello AR. */
@@ -107,6 +108,26 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
       }
     }
     return uri
+  }
+
+  fun saveBitmapToFile(context: Context, bitmap: Bitmap): File? {
+    val filename = "AR_${System.currentTimeMillis()}.png"
+
+    // Choose directory
+    val dir = File(context.getExternalFilesDir(null), "ARCaptures")
+    if (!dir.exists()) dir.mkdirs()
+
+    val file = File(dir, filename)
+
+    return try {
+      file.outputStream().use { stream ->
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+      }
+      file
+    } catch (e: Exception) {
+      e.printStackTrace()
+      null
+    }
   }
 
   fun showMeasurementInputDialog(index: Int) {
