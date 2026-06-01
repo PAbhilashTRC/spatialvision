@@ -3,13 +3,15 @@ package com.wsp.plugins.spatialvision.helloar
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.Menu
+import android.view.View
 import android.widget.Button
+import android.widget.Switch
+import androidx.appcompat.widget.SwitchCompat
 import android.widget.TextView
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import com.google.ar.core.Config
 import com.google.ar.core.Config.InstantPlacementMode
@@ -32,15 +34,14 @@ import com.wsp.plugins.spatialvision.R
  * ARCore API. The application will display any detected planes and will allow the user to tap on a
  * plane to place a 3D model.
  */
-class PoleArActivity : AppCompatActivity() {
+class HelloArActivity : AppCompatActivity() {
     companion object {
-        private const val TAG = "PoleArActivity"
+        private const val TAG = "HelloArActivity"
     }
 
     lateinit var arCoreSessionHelper: ARCoreSessionLifecycleHelper
-    lateinit var view: PoleArView
-    lateinit var renderer: PoleArRenderer;
-    lateinit var sceneManager: SceneManager;
+    lateinit var view: HelloArView
+    lateinit var renderer: HelloArRenderer
 
     val instantPlacementSettings = InstantPlacementSettings()
     val depthSettings = DepthSettings()
@@ -53,7 +54,6 @@ class PoleArActivity : AppCompatActivity() {
 //    lateinit var depthConfidence: TextView
 
 
-    @RequiresApi(Build.VERSION_CODES.Q)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -80,26 +80,16 @@ class PoleArActivity : AppCompatActivity() {
         // Configure session features, including: Lighting Estimation, Depth mode, Instant Placement.
         arCoreSessionHelper.beforeSessionResume = ::configureSession
         lifecycle.addObserver(arCoreSessionHelper)
-        val cylinder = Cylinder()
-        // 1. Core systems
-        sceneManager = SceneManager(cylinder)
 
         // Set up Hello AR UI.
-        view = PoleArView(this)
+        view = HelloArView(this)
         lifecycle.addObserver(view)
         setContentView(view.root)
 
-        view.onExportRequested = {
-            triggerExport()
-        }
-        view.onPhaseConfigChange = { config ->
-            sceneManager.currentConfig = config
-            view.updateMenuCheckedStates(config)
-        }
-
         // Set up the Hello AR renderer.
-        renderer = PoleArRenderer(this)
+        renderer = HelloArRenderer(this)
         lifecycle.addObserver(renderer)
+        setupCallbacks()
 
         // Sets up an example renderer using our HelloARRenderer.
         SampleRender(view.surfaceView, renderer, assets)
@@ -117,7 +107,47 @@ class PoleArActivity : AppCompatActivity() {
         closeButton.setOnClickListener {
             sendResultAndFinish()
         }
+        view.doneBtn.setOnClickListener {
+            pendingResult = true
+            renderer.captureBtnStatus = false
+            view.snackbarHelper.showMessage(this, "Please wait while capturing image")
+            // 🔥 Trigger capture in GL thread
+            renderer.captureHighRes = true
+        }
+        renderer.onImageCaptured = { bitmap ->
+            runOnUiThread {
+                val uri = view.saveBitmap(this, bitmap)
+//                val uri = view.saveBitmapToFile(this, bitmap)
+                view.snackbarHelper.showMessage(this, "image captured")
+                if(!renderer.captureBtnStatus){
+                    val resultIntent = Intent().apply {
+                        putExtra("status", 200)
+                        putExtra("imagePath", uri.toString())
+                        putExtra("measurements", ArrayList(view.measurements))
+                    }
+                    setResult(Activity.RESULT_OK, resultIntent)
+                    finish()
+                }else{
+                    renderer.captureBtnStatus = false
+                }
+            }
+        }
+    }
 
+    private fun setupCallbacks() {
+        view.callbacks = object : HelloArView.MeasurementCallbacks {
+            override fun onReset() {
+                renderer.
+                resetMeasurements()
+                view.resetUI()
+            }
+
+            override fun onUndo() {
+                renderer.undoMeasurements()
+                view.snackbarHelper.showMessage(view.activity, "Last measurement cleared")
+            }
+
+        }
     }
 
     // Configure the session, using Lighting Estimation, and Depth mode.
@@ -164,27 +194,6 @@ class PoleArActivity : AppCompatActivity() {
 
     private fun format(value: Float?): String {
         return if (value == null) "--" else String.format("%.2f", value)
-    }
-
-    @RequiresApi(Build.VERSION_CODES.Q)
-    private fun triggerExport() {
-
-        Thread {
-
-            try {
-                val glb = renderer.exportSceneGLB()
-
-                val uri = view.saveObjToDownloadsModern(this, glb)
-
-                runOnUiThread {
-                    Toast.makeText(this, "Saved to Downloads", Toast.LENGTH_SHORT).show()
-                }
-
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-        }.start()
     }
 
     override fun onRequestPermissionsResult(

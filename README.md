@@ -28,6 +28,7 @@ npx cap sync
 
 * [`echo(...)`](#echo)
 * [`startCamera(...)`](#startcamera)
+* [`poleDigitalTwin()`](#poledigitaltwin)
 * [Interfaces](#interfaces)
 
 </docgen-index>
@@ -61,6 +62,17 @@ startCamera(options: MeasuringInputs) => Promise<MeasuringToolResponse>
 | **`options`** | <code><a href="#measuringinputs">MeasuringInputs</a></code> |
 
 **Returns:** <code>Promise&lt;<a href="#measuringtoolresponse">MeasuringToolResponse</a>&gt;</code>
+
+--------------------
+
+
+### poleDigitalTwin()
+
+```typescript
+poleDigitalTwin() => Promise<{ status: string; }>
+```
+
+**Returns:** <code>Promise&lt;{ status: string; }&gt;</code>
 
 --------------------
 
