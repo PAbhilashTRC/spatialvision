@@ -26,6 +26,8 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.view.View
+import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.PopupMenu
 import androidx.appcompat.app.AlertDialog
@@ -123,6 +125,13 @@ class PoleArView(val activity: PoleArActivity) : DefaultLifecycleObserver {
       }
     }
 
+  val captureBtn = root.findViewById<ImageButton>(R.id.btn_capture)
+  val doneBtn = root.findViewById<Button>(R.id.done_button)
+  val btnAddPoint = root.findViewById<ImageButton>(R.id.btn_add_point)
+  val undoBtn = root.findViewById<ImageButton>(R.id.btn_undo)
+  val btnReset = root.findViewById<ImageButton>(R.id.btn_reset)
+//  val measurementNames = mutableMapOf<Int, String>()
+  val measurements = mutableListOf<Measurement>()
   val session
     get() = activity.arCoreSessionHelper.session
 
@@ -243,51 +252,15 @@ class PoleArView(val activity: PoleArActivity) : DefaultLifecycleObserver {
       .show()
   }
 
-  private fun launchInstantPlacementSettingsMenuDialog() {
-    val resources = activity.resources
-    val strings = resources.getStringArray(R.array.instant_placement_options_array)
-    val checked = booleanArrayOf(activity.instantPlacementSettings.isInstantPlacementEnabled)
-    AlertDialog.Builder(activity)
-      .setTitle(R.string.options_title_instant_placement)
-      .setMultiChoiceItems(strings, checked) { _, which, isChecked -> checked[which] = isChecked }
-      .setPositiveButton(R.string.done) { _, _ ->
-        val session = session ?: return@setPositiveButton
-        activity.instantPlacementSettings.isInstantPlacementEnabled = checked[0]
-        activity.configureSession(session)
-      }
-      .show()
+  fun resetUI() {
+    snackbarHelper.showMessage(activity, "All measurements cleared")
   }
 
-  /** Shows checkboxes to the user to facilitate toggling of depth-based effects. */
-  private fun launchDepthSettingsMenuDialog() {
-    val session = session ?: return
-
-    // Shows the dialog to the user.
-    val resources: Resources = activity.resources
-    val checkboxes =
-      booleanArrayOf(
-        activity.depthSettings.useDepthForOcclusion(),
-        activity.depthSettings.depthColorVisualizationEnabled()
-      )
-    if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
-      // With depth support, the user can select visualization options.
-      val stringArray = resources.getStringArray(R.array.depth_options_array)
-      AlertDialog.Builder(activity)
-        .setTitle(R.string.options_title_with_depth)
-        .setMultiChoiceItems(stringArray, checkboxes) { _, which, isChecked ->
-          checkboxes[which] = isChecked
-        }
-        .setPositiveButton(R.string.done) { _, _ ->
-          activity.depthSettings.setUseDepthForOcclusion(checkboxes[0])
-          activity.depthSettings.setDepthColorVisualizationEnabled(checkboxes[1])
-        }
-        .show()
-    } else {
-      // Without depth support, no settings are available.
-      AlertDialog.Builder(activity)
-        .setTitle(R.string.options_title_without_depth)
-        .setPositiveButton(R.string.done) { _, _ -> /* No settings to apply. */ }
-        .show()
-    }
-  }
 }
+data class Measurement(
+    var label: String,
+    var distance: Float,
+    var unit: String = "m",
+    var startPoint: String = "",
+    var endPoint: String = ""
+): Serializable

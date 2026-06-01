@@ -16,28 +16,29 @@ tools:context="com.wsp.plugins.spatialvision.helloar.PoleArActivity">
     android:layout_width="match_parent"
     android:layout_height="match_parent"/>
 
-<ImageButton
-    android:id="@+id/settings_button"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:layout_alignParentEnd="true"
-    android:layout_alignParentTop="true"
-    android:layout_margin="25dp"
-    android:contentDescription="TODO"
-    android:src="@drawable/ic_settings"
-    android:background="@android:color/transparent"/>
+    <com.wsp.plugins.spatialvision.helloar.ReticleOverlayView
+        android:id="@+id/reticle_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="visible" />
 
-    <SeekBar
-        android:id="@+id/radius_slider"
-        android:layout_width="150dp"
+<!--    <SeekBar-->
+<!--        android:id="@+id/radius_slider"-->
+<!--        android:layout_width="150dp"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_alignParentEnd="true"-->
+<!--        android:layout_marginTop="10dp"-->
+<!--        android:layout_marginEnd="20dp"-->
+<!--        android:max="50"-->
+<!--        android:progress="1"-->
+<!--        android:background="@android:color/transparent"/>-->
+    <Button
+        android:id="@+id/done_button"
+        android:layout_width="wrap_content"
+        android:backgroundTint="@color/colorAccent"
         android:layout_height="wrap_content"
         android:layout_alignParentEnd="true"
-        android:layout_below="@id/settings_button"
-        android:layout_marginTop="10dp"
-        android:layout_marginEnd="20dp"
-        android:max="50"
-        android:progress="1"
-        android:background="@android:color/transparent"/>
+        android:text="@string/done"/>
 
 <!-- Distance Overlay -->
 <LinearLayout

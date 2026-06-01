@@ -6,6 +6,7 @@ import android.content.Intent
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.ActivityResult
+import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
 import com.getcapacitor.Plugin
@@ -16,6 +17,8 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
 import com.wsp.plugins.spatialvision.helloar.PoleArActivity
+import com.wsp.plugins.spatialvision.helloar.HelloArActivity
+import com.wsp.plugins.spatialvision.helloar.Measurement
 
 @CapacitorPlugin(
     name = "SpatialVision",
@@ -45,6 +48,18 @@ class SpatialVisionPlugin: Plugin() {
         }
     }
 
+    @PluginMethod
+    fun poleDigitalTwin(call: PluginCall) {
+        this.activeCall = call
+
+        if (getPermissionState("camera") != PermissionState.GRANTED) {
+            requestPermissionForAlias("camera", call, "cameraPermissionCallback")
+        } else {
+//            addFragmentContainer()
+            poleArActivity(call)
+        }
+    }
+
     @PermissionCallback
     private fun cameraPermissionCallback(call: PluginCall) {
         if (getPermissionState("camera") == PermissionState.GRANTED) {
@@ -56,6 +71,29 @@ class SpatialVisionPlugin: Plugin() {
     }
 
     fun startArActivity( call: PluginCall){
+
+        // Create an intent to launch your custom activity
+        val intent: Intent = Intent(activity, HelloArActivity::class.java)
+
+
+        // Optional: Pass data to the new activity using extras
+        intent.putExtra("title", call.getString("title")?: "Hello AR")
+
+
+        // Check if you need a result back
+        val expectResult: Boolean = call.getBoolean("expectResult", true)?: true
+
+        if (expectResult) {
+            // Launch the activity and expect a result back in the "handleActivityResult" method
+            startActivityForResult(call, intent, "handleActivityResult")
+        } else {
+            // Launch the activity without expecting a result
+            activity.startActivity(intent)
+            call.resolve()
+        }
+    }
+
+    fun poleArActivity( call: PluginCall){
 
         // Create an intent to launch your custom activity
         val intent: Intent = Intent(activity, PoleArActivity::class.java)
@@ -90,10 +128,29 @@ class SpatialVisionPlugin: Plugin() {
 
         if (resultCode == Activity.RESULT_OK && data != null) {
             // Process the result and resolve the plugin call
-            val resultData = data.getStringExtra("resultKey")
+            val resultData = data.getIntExtra("status", 500)
+            val imagePath = data.getStringExtra("imagePath")
+            val measurements = data.getSerializableExtra("measurements") as? ArrayList<Measurement>
             val ret = JSObject()
-            ret.put("result", resultData?: "")
-            Toast.makeText(context, resultData, Toast.LENGTH_SHORT).show()
+            ret.put("status", resultData)
+            ret.put("imagePath", imagePath)
+            val measurementsArray = JSArray()
+
+            measurements?.forEach { m ->
+                val obj = JSObject()
+                obj.put("label", m.label)
+                obj.put("distance", m.distance)
+                obj.put("unit", m.unit)
+                obj.put("startPoint", m.startPoint)
+                obj.put("endPoint", m.endPoint)
+                measurementsArray.put(obj)
+            }
+            ret.put("measurements", measurementsArray)
+            if(resultData == 200){
+                Toast.makeText(context, "Done", Toast.LENGTH_SHORT).show()
+            }else{
+                Toast.makeText(context, "Something went wrong", Toast.LENGTH_SHORT).show()
+            }
             call.resolve(ret)
         } else {
             // Activity was canceled or failed

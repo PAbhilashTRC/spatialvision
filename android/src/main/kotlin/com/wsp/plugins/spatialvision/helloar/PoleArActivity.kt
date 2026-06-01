@@ -44,11 +44,13 @@ class PoleArActivity : AppCompatActivity() {
 
     val instantPlacementSettings = InstantPlacementSettings()
     val depthSettings = DepthSettings()
+    private var pendingResult = false
 
-    lateinit var distanceObjToObj: TextView
-    lateinit var distanceCamToObj1: TextView
-    lateinit var distanceCamToObj2: TextView
-    lateinit var depthConfidence: TextView
+
+//    lateinit var distanceObjToObj: TextView
+//    lateinit var distanceCamToObj1: TextView
+//    lateinit var distanceCamToObj2: TextView
+//    lateinit var depthConfidence: TextView
 
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -98,6 +100,7 @@ class PoleArActivity : AppCompatActivity() {
         // Set up the Hello AR renderer.
         renderer = HelloArRenderer(this)
         lifecycle.addObserver(renderer)
+        setupCallbacks()
 
         // Sets up an example renderer using our HelloARRenderer.
         SampleRender(view.surfaceView, renderer, assets)
@@ -114,6 +117,47 @@ class PoleArActivity : AppCompatActivity() {
 
         closeButton.setOnClickListener {
             sendResultAndFinish()
+        }
+        view.doneBtn.setOnClickListener {
+            pendingResult = true
+            renderer.captureBtnStatus = false
+            view.snackbarHelper.showMessage(this, "Please wait while capturing image")
+            // 🔥 Trigger capture in GL thread
+            renderer.captureHighRes = true
+        }
+        renderer.onImageCaptured = { bitmap ->
+            runOnUiThread {
+                val uri = view.saveBitmap(this, bitmap)
+//                val uri = view.saveBitmapToFile(this, bitmap)
+                view.snackbarHelper.showMessage(this, "image captured")
+                if(!renderer.captureBtnStatus){
+                    val resultIntent = Intent().apply {
+                        putExtra("status", 200)
+                        putExtra("imagePath", uri.toString())
+                        putExtra("measurements", ArrayList(view.measurements))
+                    }
+                    setResult(Activity.RESULT_OK, resultIntent)
+                    finish()
+                }else{
+                    renderer.captureBtnStatus = false
+                }
+            }
+        }
+    }
+
+    private fun setupCallbacks() {
+        view.callbacks = object : HelloArView.MeasurementCallbacks {
+            override fun onReset() {
+                renderer.
+                resetMeasurements()
+                view.resetUI()
+            }
+
+            override fun onUndo() {
+                renderer.undoMeasurements()
+                view.snackbarHelper.showMessage(view.activity, "Last measurement cleared")
+            }
+
         }
     }
 
@@ -213,9 +257,8 @@ class PoleArActivity : AppCompatActivity() {
 
     private fun sendResultAndFinish() {
         val resultIntent = Intent()
-
         // Send any data you want back
-        resultIntent.putExtra("resultKey", "AR Session Closed Successfully")
+        resultIntent.putExtra("status", 200);
 
         setResult(Activity.RESULT_OK, resultIntent)
         finish()

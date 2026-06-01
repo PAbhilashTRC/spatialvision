@@ -131,6 +131,20 @@ class HelloArRenderer(val activity: PoleArActivity) :
     private var viewportHeight = 1
 //    private val captureHelper = ARCaptureHelper(viewportWidth, viewportHeight)
 
+    @Volatile
+    var captureHighRes = false
+
+    var captureBtnStatus: Boolean = false
+
+    private var viewportWidth = 1
+    private var viewportHeight = 1
+
+    private val MAXANCHORS = 50
+    private var reticleOverlay: ReticleOverlayView = ReticleOverlayView(activity)
+
+    private var pendingDialogIndex: Int? = null
+    var onImageCaptured: ((Bitmap) -> Unit)? = null
+
     override fun onResume(owner: LifecycleOwner) {
         displayRotationHelper.onResume()
         hasSetTextureNames = false
@@ -352,7 +366,6 @@ class HelloArRenderer(val activity: PoleArActivity) :
         // --- Input ---
         handleTap(frame, camera)
 //        handleDrag(frame, camera)
-
         trackingStateHelper.updateKeepScreenOnFlag(camera.trackingState)
 
         // --- Draw background ---
@@ -851,7 +864,7 @@ class HelloArRenderer(val activity: PoleArActivity) :
 
     fun findSelectedAnchor(frame: Frame, tap: MotionEvent): WrappedAnchor? {
 
-        val thresholdPx = 100f
+        val thresholdPx = 50f
 
         val screenWidth = activity.view.surfaceView.width
         val screenHeight = activity.view.surfaceView.height
@@ -909,6 +922,67 @@ class HelloArRenderer(val activity: PoleArActivity) :
         val y = ((1f - ndcY) / 2f) * screenHeight
 
         return floatArrayOf(x, y)
+    }
+
+    // Update addMeasurementPoint method to use enhanced anchor creation:
+//    fun addMeasurementPoint() {
+//        if (wrappedAnchors.size >= MAXANCHORS) {
+//            activity.runOnUiThread {
+//                activity.view.snackbarHelper.showMessage(
+//                    activity,
+//                    "Maximum points ($MAXANCHORS) reached. Reset to add more."
+//                )
+//            }
+//            activity.view.surfaceView.queueEvent {
+//                val frame = session?.update()?: return@queueEvent
+//                val camera = frame.camera
+//                placeAnchorAtCenter(frame, camera)
+//            }
+//            return
+//        }
+//    }
+
+    // Simplified reset method
+    fun resetMeasurements() {
+        activity.view.surfaceView.queueEvent {
+            for (anchor in wrappedAnchors) {
+                anchor.anchor.detach()
+            }
+
+            activity.runOnUiThread {
+                wrappedAnchors.clear()
+                reticleOverlay.resetAndShow()
+                reticleOverlay.showReticle(true)
+                reticleOverlay.updateSurfaceDetection(false, false)
+
+                activity.view.snackbarHelper.showMessage(activity, "All points cleared")
+            }
+        }
+    }
+
+    fun undoMeasurements(){
+        activity.view.surfaceView.queueEvent {
+            if (activity.view.measurements.isNotEmpty()
+                && wrappedAnchors.isNotEmpty() && wrappedAnchors.size >=2 &&
+                wrappedAnchors.size % 2 == 0 ) {
+                val lastIndex = activity.view.measurements.lastIndex
+
+                activity.view.measurements.removeAt(lastIndex)
+                val anchorLastIndex = wrappedAnchors.lastIndex
+
+                wrappedAnchors[anchorLastIndex].anchor.detach()
+                wrappedAnchors[anchorLastIndex - 1].anchor.detach()
+
+                wrappedAnchors.removeAt(anchorLastIndex)
+                wrappedAnchors.removeAt(anchorLastIndex - 1)
+            }
+            else if(wrappedAnchors.size >= 1 && wrappedAnchors.size % 2 == 1){
+                val anchorLastIndex = wrappedAnchors.lastIndex
+                wrappedAnchors[anchorLastIndex].anchor.detach()
+                wrappedAnchors.removeAt(anchorLastIndex)
+            }
+            activity.view.surfaceView.requestRender()
+        }
     }
 
 
