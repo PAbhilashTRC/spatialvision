@@ -36,13 +36,12 @@ import com.wsp.plugins.spatialvision.R
 import com.wsp.plugins.spatialvision.common.helpers.SnackbarHelper
 import com.wsp.plugins.spatialvision.common.helpers.TapHelper
 import android.widget.SeekBar
-import android.widget.TextView
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import java.io.File
 
 /** Contains UI elements for Hello AR. */
-class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
+class PoleArView(val activity: PoleArActivity) : DefaultLifecycleObserver {
   val root = View.inflate(activity, R.layout.spatial_vision, null)
   val surfaceView = root.findViewById<GLSurfaceView>(R.id.surfaceview)
 

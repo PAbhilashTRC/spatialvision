@@ -6,12 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.Menu
-import android.view.MenuItem
-import android.view.View
 import android.widget.Button
-import android.widget.Switch
-import androidx.appcompat.widget.SwitchCompat
 import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
@@ -37,13 +32,13 @@ import com.wsp.plugins.spatialvision.R
  * ARCore API. The application will display any detected planes and will allow the user to tap on a
  * plane to place a 3D model.
  */
-class HelloArActivity : AppCompatActivity() {
+class PoleArActivity : AppCompatActivity() {
     companion object {
-        private const val TAG = "HelloArActivity"
+        private const val TAG = "PoleArActivity"
     }
 
     lateinit var arCoreSessionHelper: ARCoreSessionLifecycleHelper
-    lateinit var view: HelloArView
+    lateinit var view: PoleArView
     lateinit var renderer: HelloArRenderer
     lateinit var sceneManager: SceneManager;
 
@@ -88,7 +83,7 @@ class HelloArActivity : AppCompatActivity() {
         sceneManager = SceneManager(cylinder)
 
         // Set up Hello AR UI.
-        view = HelloArView(this)
+        view = PoleArView(this)
         lifecycle.addObserver(view)
         setContentView(view.root)
 

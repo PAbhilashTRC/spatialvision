@@ -3,7 +3,6 @@ package com.wsp.plugins.spatialvision
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
-import android.view.View
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.ActivityResult
@@ -16,7 +15,7 @@ import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
-import com.wsp.plugins.spatialvision.helloar.HelloArActivity
+import com.wsp.plugins.spatialvision.helloar.PoleArActivity
 
 @CapacitorPlugin(
     name = "SpatialVision",
@@ -59,7 +58,7 @@ class SpatialVisionPlugin: Plugin() {
     fun startArActivity( call: PluginCall){
 
         // Create an intent to launch your custom activity
-        val intent: Intent = Intent(activity, HelloArActivity::class.java)
+        val intent: Intent = Intent(activity, PoleArActivity::class.java)
 
 
         // Optional: Pass data to the new activity using extras

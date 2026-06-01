@@ -3,18 +3,14 @@ package com.wsp.plugins.spatialvision.helloar
 //import com.wsp.plugins.spatialvision.common.samplerender.arcore.PlaneRenderer
 //import com.wsp.plugins.spatialvision.GeoSpatial
 import ARSimpleCapture
-import android.annotation.SuppressLint
-import android.graphics.Bitmap
 import android.opengl.GLES30
 import android.opengl.Matrix
 import android.util.Log
 import android.view.MotionEvent
-import android.widget.SeekBar
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.google.ar.core.Anchor
 import com.google.ar.core.Camera
-import com.google.ar.core.DepthPoint
 import com.google.ar.core.Frame
 import com.google.ar.core.LightEstimate
 import com.google.ar.core.Plane
@@ -38,12 +34,9 @@ import com.wsp.plugins.spatialvision.common.samplerender.arcore.BackgroundRender
 import com.wsp.plugins.spatialvision.common.samplerender.arcore.SpecularCubemapFilter
 import java.io.IOException
 import java.nio.ByteBuffer
-import java.nio.IntBuffer
-import java.util.Timer
-import java.util.TimerTask
 
 /** Renders the HelloAR application using our example Renderer. */
-class HelloArRenderer(val activity: HelloArActivity) :
+class HelloArRenderer(val activity: PoleArActivity) :
     SampleRender.Renderer, DefaultLifecycleObserver {
     companion object {
         val TAG = "HelloArRenderer"

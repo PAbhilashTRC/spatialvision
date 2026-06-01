@@ -23,7 +23,7 @@ package com.wsp.plugins.spatialvision
 //import com.wsp.plugins.spatialvision.helloar.BasicArRenderer
 //import com.wsp.plugins.spatialvision.helloar.HelloArRenderer
 //import com.wsp.plugins.spatialvision.helloar.SimpleArRenderer
-//import com.wsp.plugins.spatialvision.helloar.HelloArView
+//import com.wsp.plugins.spatialvision.helloar.PoleArView
 //
 //class GeoSpatial : Fragment() {
 //    private var title: String? = ""
@@ -38,7 +38,7 @@ package com.wsp.plugins.spatialvision
 //    lateinit var originalView: View
 //    lateinit var glSurfaceView: GLSurfaceView
 //    lateinit var arCoreSessionHelper: ARCoreSessionLifecycleHelper
-//    lateinit var view: HelloArView
+//    lateinit var view: PoleArView
 ////    lateinit var renderer: SimpleArRenderer
 //    lateinit var renderer: HelloArRenderer
 ////    lateinit var renderer: BasicArRenderer
@@ -109,7 +109,7 @@ package com.wsp.plugins.spatialvision
 //
 //        // Set up Hello AR UI.
 ////        view = HelloArController(this, originalView)
-//        view = HelloArView(this, originalView)
+//        view = PoleArView(this, originalView)
 //        lifecycle.addObserver(view)
 //
 //        // Sets up an example renderer using our HelloGeoRenderer.
